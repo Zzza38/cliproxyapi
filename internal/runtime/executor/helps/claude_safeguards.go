@@ -21,8 +21,8 @@ func PreserveClaudeSafeguardHeaders(dst, src http.Header, body []byte) {
 			dst[http.CanonicalHeaderKey(name)] = append([]string(nil), values...)
 		}
 	}
-	// OAuth authentication and proxy-selected cache TTLs still require their
-	// credential betas. Keep every caller beta, including unknown future ones.
+	// Keep the feature betas required by the prepared body as well as every
+	// caller beta. For example, display=updates requires its matching beta.
 	if incoming := HeaderValuesCaseInsensitive(src, "Anthropic-Beta"); len(incoming) > 0 {
 		betas := strings.Join(incoming, ",")
 		seen := make(map[string]bool)
@@ -31,7 +31,7 @@ func PreserveClaudeSafeguardHeaders(dst, src http.Header, body []byte) {
 		}
 		for _, beta := range strings.Split(generatedBetas, ",") {
 			beta = strings.TrimSpace(beta)
-			if (beta == "oauth-2025-04-20" || beta == "extended-cache-ttl-2025-04-11") && !seen[beta] {
+			if beta != "" && !seen[beta] {
 				betas += "," + beta
 				seen[beta] = true
 			}

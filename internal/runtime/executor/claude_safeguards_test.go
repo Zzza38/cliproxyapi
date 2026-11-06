@@ -44,11 +44,11 @@ func TestClaudeSafeguardsRoundTrip(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			payload := []byte(`{"model":"claude-opus-5","max_tokens":32,"safeguards":[{"type":"future_classifier","tool_use_id":"tool:original","opaque":{"keep":true}}],"future_request_field":{"keep":true},"messages":[{"role":"user","content":"run"},{"role":"assistant","content":[{"type":"tool_use","id":"tool:original","name":"Bash","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool:original","content":"ok"}]}]}`)
+			payload := []byte(`{"model":"claude-opus-5-5","thinking":{"type":"adaptive"},"max_tokens":32,"safeguards":[{"type":"future_classifier","tool_use_id":"tool:original","opaque":{"keep":true}}],"future_request_field":{"keep":true},"messages":[{"role":"user","content":"run"},{"role":"assistant","content":[{"type":"tool_use","id":"tool:original","name":"Bash","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool:original","content":"ok"}]}]}`)
 			auth := &cliproxyauth.Auth{Attributes: map[string]string{"api_key": "test-key", "base_url": server.URL, "fingerprint_profile": "claude-code-cli"}}
 			opts := cliproxyexecutor.Options{SourceFormat: sdktranslator.FormatClaude, Headers: http.Header{"Anthropic-Beta": {"future-safeguards-beta,effort-2025-11-24"}, "Anthropic-Version": {"2099-01-01"}, "Anthropic-Future-Feature": {"opaque"}}}
 			executor := NewClaudeExecutor(&config.Config{})
-			req := cliproxyexecutor.Request{Model: "claude-opus-5", Payload: payload}
+			req := cliproxyexecutor.Request{Model: "claude-opus-5-5", Payload: payload}
 			var output []byte
 			if stream {
 				result, err := executor.ExecuteStream(context.Background(), auth, req, opts)
@@ -71,6 +71,9 @@ func TestClaudeSafeguardsRoundTrip(t *testing.T) {
 				output = result.Payload
 			}
 			got := <-captured
+			if gjson.GetBytes(got.body, "thinking.display").String() != "updates" {
+				t.Fatal("fixture must exercise the proxy-generated progress display")
+			}
 			for _, path := range []string{"safeguards", "future_request_field"} {
 				if gjson.GetBytes(got.body, path).Raw != gjson.GetBytes(payload, path).Raw {
 					t.Errorf("changed %s: %s", path, got.body)
@@ -82,7 +85,13 @@ func TestClaudeSafeguardsRoundTrip(t *testing.T) {
 			for _, header := range []string{"Anthropic-Beta", "Anthropic-Version", "Anthropic-Future-Feature"} {
 				want := opts.Headers.Get(header)
 				if header == "Anthropic-Beta" {
-					want += ",oauth-2025-04-20,extended-cache-ttl-2025-04-11"
+					if !strings.HasPrefix(got.headers.Get(header), want) {
+						t.Fatalf("caller betas changed: %q", got.headers.Get(header))
+					}
+					if gjson.GetBytes(got.body, "thinking.display").String() == "updates" && !strings.Contains(got.headers.Get(header), "thinking-display-updates-2026-08-18") {
+						t.Fatal("display=updates lost its required beta")
+					}
+					continue
 				}
 				if got.headers.Get(header) != want {
 					t.Errorf("%s = %q, want %q", header, got.headers.Get(header), want)

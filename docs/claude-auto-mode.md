@@ -7,8 +7,8 @@ unchanged when safeguards are present.
 
 For these requests, caller-provided Anthropic feature headers and version take
 precedence over the proxy's client fingerprint. The proxy still uses the selected
-account's authentication and adds the OAuth and extended-cache headers required
-by that account and the prepared request. Configured payload rules remain the
+account's authentication and keeps the credential and feature betas required by the prepared request, including
+the beta paired with `thinking.display: "updates"`. Configured payload rules remain the
 final authority over the request body.
 
 After updating the server, start a new Claude Code session in auto mode. Run
