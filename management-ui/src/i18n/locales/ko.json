@@ -2500,6 +2500,12 @@
     "plan_units": "{{plan}} ({{units}}단위)",
     "plan_assumed": "요금제를 인식하지 못해 라우터와 같이 1단위로 계산",
     "read_ago": "{{duration}} 전 읽음",
-    "remaining_of": "{{value}} / {{units}}단위"
+    "remaining_of": "{{value}} / {{units}}단위",
+    "tokens_24h": "토큰 · 24시간",
+    "tokens_total": "합계",
+    "tokens_input": "입력",
+    "tokens_output": "출력",
+    "tokens_cache_read": "캐시 읽기",
+    "tokens_cache_write": "캐시 쓰기"
   }
 }

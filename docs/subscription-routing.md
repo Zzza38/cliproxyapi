@@ -30,7 +30,7 @@ The configured accounting policy uses these multipliers:
 | Codex | Pro 500 / ProMax | 50 |
 | Claude | Pro | 1 |
 | Claude | Max 5x | 5 |
-| Claude | Higher Max tier | 10 |
+| Claude | Ultra | 10 |
 
 These are routing weights for comparing remaining allowance, not guarantees of
 a fixed number of tokens. Unrecognized plans use one unit.

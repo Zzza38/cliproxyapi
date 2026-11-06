@@ -97,6 +97,33 @@
   color: var(--text-secondary);
 }
 
+.tokens {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.tokensLabel {
+  font-weight: 500;
+}
+
+.tokenItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.tokenValue {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
 .statValue {
   display: flex;
   align-items: center;

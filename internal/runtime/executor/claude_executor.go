@@ -79,7 +79,13 @@ func sanitizeClaudeMessagesForClaudeUpstreamWithDebug(ctx context.Context, body 
 		sanitized, report = sigcompat.SanitizeClaudeMessagesForClaudeUpstream(body, baseModel, preserveEmptyThinkingBlocks...)
 		logClaudeSignatureSanitizeReport(ctx, baseModel, report)
 	}
-	return helps.NormalizeClaudeToolCallIDs(sanitizeClaudeWebSearchDomains(sanitized))
+	sanitized = sanitizeClaudeWebSearchDomains(sanitized)
+	// Server-side verdicts refer to the caller's tool IDs. Rewriting only the
+	// messages would leave those references pointing at a different tool call.
+	if gjson.GetBytes(body, "safeguards").Exists() {
+		return sanitized
+	}
+	return helps.NormalizeClaudeToolCallIDs(sanitized)
 }
 
 // sanitizeClaudeWebSearchDomains removes empty allowed_domains/blocked_domains

@@ -1,11 +1,10 @@
 /**
  * Browser-local quota history.
  *
- * The server exposes no quota-history endpoint, so the pool charts record what
- * this browser actually observed: every successful Claude/Codex quota read is
- * appended here with its observation time. Nothing is back-filled or invented.
- * Gaps (page closed, other browsers, server-side probes) stay gaps in the data;
- * the chart joins consecutive readings with straight lines and says so.
+ * Every successful Claude/Codex quota read this browser makes is appended here
+ * with its observation time. Nothing is back-filled or invented. The server keeps
+ * its own weekly history (serverHistory.ts); the charts merge both in memory and
+ * this log stays the fallback when the server store is unavailable.
  *
  * Storage is scoped per management API base so two servers never share a log.
  * Pure helpers take and return plain objects; only load/save touch storage.
@@ -53,6 +52,7 @@ export interface ObservedWindow {
 }
 
 export const HISTORY_RETENTION_MS = 28 * 24 * 60 * 60 * 1000;
+/** Cap for this browser's own log in localStorage; server history is not capped by it. */
 export const MAX_READINGS_PER_SERIES = 3000;
 /** A reading this close to the previous one replaces it instead of adding a point. */
 export const MIN_READING_GAP_MS = 30 * 1000;
@@ -135,6 +135,9 @@ export function pruneHistory(
 
 export const historyCredentialId = credentialId;
 
+/** Converted series per stored series; server history can hold 40k+ readings per series. */
+const seriesCache = new WeakMap<StoredSeries, HistorySeries>();
+
 export function seriesFor(
   history: LocalQuotaHistory,
   provider: PooledProvider,
@@ -143,7 +146,9 @@ export function seriesFor(
 ): HistorySeries | null {
   const item = history.credentials[credentialId(provider, key)]?.series[windowId];
   if (!item || item.readings.length === 0) return null;
-  return {
+  const cached = seriesCache.get(item);
+  if (cached) return cached;
+  const series: HistorySeries = {
     windowMinutes: item.windowMinutes,
     points: item.readings.map(([atMs, usedPercent, resetAtMs]) => ({
       atMs,
@@ -151,18 +156,23 @@ export function seriesFor(
       resetAtMs: resetAtMs > 0 ? resetAtMs : null,
     })),
   };
+  seriesCache.set(item, series);
+  return series;
 }
 
 /** Oldest reading and reading count for one provider's weekly series. */
 export function historyCoverage(
   history: LocalQuotaHistory,
   provider: PooledProvider,
-  windowId: string
+  windowId: string,
+  /** Restrict to these credential ids (server history may still hold deleted ones). */
+  credentialIds?: Set<string>
 ): { oldestMs: number | null; readings: number } {
   let oldestMs: number | null = null;
   let readings = 0;
-  Object.values(history.credentials).forEach((credential) => {
+  Object.entries(history.credentials).forEach(([id, credential]) => {
     if (credential.provider !== provider) return;
+    if (credentialIds && !credentialIds.has(id)) return;
     const item = credential.series[windowId];
     if (!item || item.readings.length === 0) return;
     readings += item.readings.length;
@@ -177,32 +187,54 @@ export function historyCoverage(
 const isStoredReading = (value: unknown): value is StoredReading =>
   Array.isArray(value) && value.length === 3 && value.every(isFiniteNumber);
 
-/** Validate untrusted storage content; anything malformed is dropped, not repaired. */
+/**
+ * Validate an untrusted history object (storage or server); anything malformed is
+ * dropped, not repaired. Null when the object is not a version-1 history at all.
+ */
+export function normalizeHistory(value: unknown): LocalQuotaHistory | null {
+  const parsed = value as Partial<LocalQuotaHistory> | null;
+  if (
+    !parsed ||
+    typeof parsed !== 'object' ||
+    parsed.version !== 1 ||
+    !parsed.credentials ||
+    typeof parsed.credentials !== 'object'
+  ) {
+    return null;
+  }
+  const credentials: Record<string, StoredCredential> = {};
+  Object.entries(parsed.credentials).forEach(([id, credential]) => {
+    if (!credential || (credential.provider !== 'claude' && credential.provider !== 'codex')) {
+      return;
+    }
+    const series: Record<string, StoredSeries> = {};
+    Object.entries(credential.series ?? {}).forEach(([windowId, item]) => {
+      if (!item || !isFiniteNumber(item.windowMinutes) || !Array.isArray(item.readings)) return;
+      const readings = item.readings.filter(isStoredReading);
+      if (!isSorted(readings)) readings.sort((a, b) => a[0] - b[0]);
+      if (readings.length > 0) series[windowId] = { windowMinutes: item.windowMinutes, readings };
+    });
+    credentials[id] = { provider: credential.provider, series };
+  });
+  return {
+    version: 1,
+    startedAtMs: isFiniteNumber(parsed.startedAtMs) ? parsed.startedAtMs : null,
+    credentials,
+  };
+}
+
+const isSorted = (readings: StoredReading[]) => {
+  for (let i = 1; i < readings.length; i += 1) {
+    if (readings[i][0] < readings[i - 1][0]) return false;
+  }
+  return true;
+};
+
+/** Parse stored JSON; anything malformed is dropped, not repaired. */
 export function parseHistory(raw: string | null): LocalQuotaHistory {
   if (!raw) return emptyHistory();
   try {
-    const parsed = JSON.parse(raw) as Partial<LocalQuotaHistory>;
-    if (!parsed || parsed.version !== 1 || typeof parsed.credentials !== 'object') {
-      return emptyHistory();
-    }
-    const credentials: Record<string, StoredCredential> = {};
-    Object.entries(parsed.credentials ?? {}).forEach(([id, credential]) => {
-      if (!credential || (credential.provider !== 'claude' && credential.provider !== 'codex')) {
-        return;
-      }
-      const series: Record<string, StoredSeries> = {};
-      Object.entries(credential.series ?? {}).forEach(([windowId, item]) => {
-        if (!item || !isFiniteNumber(item.windowMinutes) || !Array.isArray(item.readings)) return;
-        const readings = item.readings.filter(isStoredReading).sort((a, b) => a[0] - b[0]);
-        if (readings.length > 0) series[windowId] = { windowMinutes: item.windowMinutes, readings };
-      });
-      credentials[id] = { provider: credential.provider, series };
-    });
-    return {
-      version: 1,
-      startedAtMs: isFiniteNumber(parsed.startedAtMs) ? parsed.startedAtMs : null,
-      credentials,
-    };
+    return normalizeHistory(JSON.parse(raw)) ?? emptyHistory();
   } catch {
     return emptyHistory();
   }

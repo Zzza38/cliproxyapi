@@ -2506,6 +2506,12 @@
     "plan_units": "{{plan}} ({{units}} đv)",
     "plan_assumed": "Không nhận ra gói; tính là 1 đơn vị, giống bộ định tuyến",
     "read_ago": "đọc {{duration}} trước",
-    "remaining_of": "{{value}} / {{units}} đv"
+    "remaining_of": "{{value}} / {{units}} đv",
+    "tokens_24h": "Token · 24 giờ",
+    "tokens_total": "Tổng",
+    "tokens_input": "Đầu vào",
+    "tokens_output": "Đầu ra",
+    "tokens_cache_read": "Đọc bộ nhớ đệm",
+    "tokens_cache_write": "Ghi bộ nhớ đệm"
   }
 }

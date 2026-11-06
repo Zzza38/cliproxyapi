@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/quotahistory"
 	"testing"
 	"time"
 
@@ -20,6 +21,12 @@ func (e *subscriptionTestExecutor) FetchSubscriptionQuota(ctx context.Context, a
 func TestSubscriptionRefreshAffectsManagerSelection(t *testing.T) {
 	now := time.Now()
 	m := NewManager(nil, &SoonestResetFirstSelector{}, nil)
+	dir := t.TempDir()
+	store, errOpen := quotahistory.Open(dir, now)
+	if errOpen != nil {
+		t.Fatal(errOpen)
+	}
+	m.SetSubscriptionHistoryStore(store)
 	m.RegisterExecutor(&subscriptionTestExecutor{schedulerTestExecutor: schedulerTestExecutor{provider: "codex"}, fetch: func(_ context.Context, a *Auth) (*SubscriptionQuota, error) {
 		reset := 24 * time.Hour
 		if a.ID == "b" {
@@ -33,6 +40,13 @@ func TestSubscriptionRefreshAffectsManagerSelection(t *testing.T) {
 		}
 	}
 	m.RefreshSubscriptionQuotas(context.Background())
+	reopened, errReopen := quotahistory.Open(dir, now)
+	if errReopen != nil {
+		t.Fatal(errReopen)
+	}
+	if got := reopened.History(map[string]bool{"codex:a": true, "codex:b": true}, now); len(got.Credentials) != 2 {
+		t.Fatalf("background observations were not persisted: %+v", got)
+	}
 	if m.useSchedulerFastPath() {
 		t.Fatal("subscription routing must use live quota snapshots")
 	}

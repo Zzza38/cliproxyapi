@@ -2,7 +2,8 @@
  * Weekly subscription percentages, normalized to the largest plan in the pool.
  * Recorded and projected usage share the same reference capacity.
  *
- * Adapted from yazinsai/prox (MIT). History is browser-local; see pool/localHistory.ts.
+ * Adapted from yazinsai/prox (MIT). History is the server's weekly record merged with
+ * this browser's reads; see pool/useQuotaHistory.ts. Token totals sit in their own row.
  */
 
 import { useMemo } from 'react';
@@ -10,6 +11,7 @@ import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 import { drainSeries, niceCeiling, type PoolMode } from '../pool/poolModel';
 import type { ProviderPool } from '../pool/buildPools';
+import { formatTokenCount, type TokenTotals } from '../pool/tokenUsage';
 import {
   formatDate,
   formatDayLabel,
@@ -35,11 +37,23 @@ export interface QuotaPoolPanelProps {
   history: { oldestMs: number | null; readings: number; startedAtMs: number | null };
   /** Configured routing.strategy when known. */
   routingStrategy: string | null;
+  /** Server token totals for the last 24h; null hides the row. */
+  tokens?: TokenTotals | null;
 }
 
 export function QuotaPoolPanel(props: QuotaPoolPanelProps) {
-  const { providerLabel, accent, pool, mode, burnWindowHours, span, days, now, showAccountLines } =
-    props;
+  const {
+    providerLabel,
+    accent,
+    pool,
+    mode,
+    burnWindowHours,
+    span,
+    days,
+    now,
+    showAccountLines,
+    tokens,
+  } = props;
   const { summary } = pool;
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage;
@@ -148,6 +162,28 @@ export function QuotaPoolPanel(props: QuotaPoolPanelProps) {
             </div>
           ))}
         </div>
+
+        {tokens && (
+          <div className={styles.tokens} aria-label={t('quota_pool.tokens_24h')}>
+            <span className={styles.tokensLabel}>{t('quota_pool.tokens_24h')}</span>
+            {(
+              [
+                ['total', tokens.totalTokens],
+                ['input', tokens.inputTokens],
+                ['output', tokens.outputTokens],
+                ['cache_read', tokens.cacheReadTokens],
+                ['cache_write', tokens.cacheWriteTokens],
+              ] as const
+            ).map(([key, value]) => (
+              <span key={key} className={styles.tokenItem}>
+                {t(`quota_pool.tokens_${key}`)}
+                <span className={styles.tokenValue} title={value.toLocaleString(locale)}>
+                  {formatTokenCount(value, locale)}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {hasData && (

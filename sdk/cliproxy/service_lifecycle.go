@@ -95,6 +95,7 @@ func (s *Service) Run(ctx context.Context) error {
 			auths:           s.coreManager.List(),
 		})
 		interval := 15 * time.Minute
+		s.configureSubscriptionHistory()
 		s.coreManager.StartAutoRefresh(ctx, interval)
 		go s.refreshSubscriptionQuotas(ctx)
 		log.Infof("core auth auto-refresh started (interval=%s)", interval)

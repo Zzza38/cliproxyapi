@@ -2704,6 +2704,13 @@ func TestCodexWebsockets_KeepalivePingDuringUpload_WithSession(t *testing.T) {
 		// Now send terminal response.
 		respPayload := []byte(`{"type":"response.completed","response":{"id":"resp-1","status":"completed","output":[]}}`)
 		_ = conn.WriteMessage(websocket.TextMessage, respPayload)
+		// Keep the socket open until the client consumes the terminal event.
+		// Closing here can race delivery and trigger an unrelated reconnect.
+		select {
+		case <-readErrCh:
+		case <-time.After(5 * time.Second):
+			t.Error("client did not close its completed session")
+		}
 	}))
 	defer server.Close()
 
@@ -2712,6 +2719,7 @@ func TestCodexWebsockets_KeepalivePingDuringUpload_WithSession(t *testing.T) {
 			DisableImageGeneration: config.DisableImageGenerationAll,
 		},
 	})
+	defer exec.CloseExecutionSession("session-ping-test")
 	auth := &cliproxyauth.Auth{ID: "auth-session-ping", Attributes: map[string]string{"api_key": "sk-test", "base_url": server.URL}}
 	req := cliproxyexecutor.Request{
 		Model:   "gpt-5.6-sol",

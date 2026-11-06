@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	log "github.com/sirupsen/logrus"
@@ -33,11 +34,12 @@ func NewCodexWebsocketsExecutor(cfg *config.Config) *CodexWebsocketsExecutor {
 	}
 }
 
-// CodexAutoExecutor routes Codex requests to the websocket transport only when:
+// CodexAutoExecutor routes Codex requests directly to the websocket transport when:
 //  1. The downstream transport is websocket, and
 //  2. The selected auth enables websockets.
 //
-// For non-websocket downstream requests, it always uses the legacy HTTP implementation.
+// HTTP requests use the HTTP implementation, with a WebSocket fallback when the
+// upstream rejects its HTTP retry buffer before a response stream starts.
 type CodexAutoExecutor struct {
 	httpExec *CodexExecutor
 	wsExec   *CodexWebsocketsExecutor
@@ -80,7 +82,12 @@ func (e *CodexAutoExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 	if cliproxyexecutor.RequiredUpstreamWebsocket(ctx) {
 		return cliproxyexecutor.Response{}, cliproxyexecutor.NewUpstreamWebsocketReplayRequiredError()
 	}
-	return e.httpExec.Execute(ctx, auth, req, opts)
+	resp, err := e.httpExec.Execute(ctx, auth, req, opts)
+	if opts.Alt != "responses/compact" && codexWebsocketsEnabled(auth) && helps.IsCodexHTTPRetryBufferError(err) && (ctx == nil || ctx.Err() == nil) {
+		log.Warn("codex: upstream HTTP retry buffer rejected request; retrying over WebSocket")
+		return e.wsExec.Execute(ctx, auth, req, opts)
+	}
+	return resp, err
 }
 
 func (e *CodexAutoExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (*cliproxyexecutor.StreamResult, error) {
@@ -93,7 +100,12 @@ func (e *CodexAutoExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 	if cliproxyexecutor.RequiredUpstreamWebsocket(ctx) {
 		return nil, cliproxyexecutor.NewUpstreamWebsocketReplayRequiredError()
 	}
-	return e.httpExec.ExecuteStream(ctx, auth, req, opts)
+	result, err := e.httpExec.ExecuteStream(ctx, auth, req, opts)
+	if result == nil && codexWebsocketsEnabled(auth) && helps.IsCodexHTTPRetryBufferError(err) && (ctx == nil || ctx.Err() == nil) {
+		log.Warn("codex: upstream HTTP retry buffer rejected request; retrying over WebSocket")
+		return e.wsExec.ExecuteStream(ctx, auth, req, opts)
+	}
+	return result, err
 }
 
 func (e *CodexAutoExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {

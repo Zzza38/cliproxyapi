@@ -51,6 +51,8 @@ const account = (overrides: Partial<PoolAccount>): PoolAccount => ({
   nextResetMs: null,
   periodMs: 168 * H,
   history: [],
+  observedFromMs: overrides.history?.[0]?.atMs ?? null,
+  observedToMs: overrides.history?.at(-1)?.atMs ?? null,
   source: 'live',
   ...overrides,
 });
@@ -264,10 +266,21 @@ describe('burn and projection', () => {
     ];
     expect(burnRate(history, NOW, 3)).toBeCloseTo(2 / 3, 6);
     expect(burnRate(history, NOW, 1)).toBeCloseTo(0.5, 6);
+    // Two real readings a minute apart are enough: 0.1 units in 1 minute.
     expect(
       burnRate(
         [
           { atMs: NOW - 60_000, value: 5 },
+          { atMs: NOW, value: 4.9 },
+        ],
+        NOW,
+        3
+      )
+    ).toBeCloseTo(6, 6);
+    expect(
+      burnRate(
+        [
+          { atMs: NOW - 59_000, value: 5 },
           { atMs: NOW, value: 4.9 },
         ],
         NOW,
@@ -729,6 +742,32 @@ describe('pool panel', () => {
     expect(markup).toContain('projected');
     expect(markup).not.toContain('units left');
     expect(markup).not.toContain('The server keeps no quota history');
+  });
+
+  test('shows 24h token totals in their own row, separate from percentages', () => {
+    const markup = renderToStaticMarkup(
+      createElement(QuotaPoolPanel, {
+        ...props,
+        tokens: {
+          requests: 12,
+          inputTokens: 1_200_000,
+          outputTokens: 30_000,
+          cacheReadTokens: 900_000,
+          cacheWriteTokens: 50_000,
+          totalTokens: 1_230_000,
+        },
+      })
+    );
+    expect(markup).toContain('Tokens · 24h');
+    // Input already includes cache reads/writes; the total is the server's, not re-summed.
+    expect(markup).toContain('Total<span');
+    expect(markup).toContain('>1.2M<');
+    expect(markup).toContain('>30K<');
+    expect(markup).toContain('>900K<');
+    expect(markup).toContain('>50K<');
+    expect(markup).not.toContain('2.2M');
+    expect(markup).toContain('>45%<');
+    expect(renderToStaticMarkup(createElement(QuotaPoolPanel, props))).not.toContain('Tokens');
   });
 
   test('removes the numbered account-order list and its explanation', () => {

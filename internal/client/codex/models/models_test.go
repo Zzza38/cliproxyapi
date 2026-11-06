@@ -1657,3 +1657,39 @@ func assertCodexNullableFieldCleared(t *testing.T, entry map[string]any, key str
 		t.Errorf("%s = %#v, want null", key, value)
 	}
 }
+
+func TestCodexClientModelsResponse_UltrafastServiceTier(t *testing.T) {
+	for _, tc := range []struct {
+		model     string
+		providers []string
+		want      bool
+	}{
+		{"gpt-6.1-sol", []string{"codex"}, true},
+		{"gpt-6-astra", []string{"codex"}, true},
+		{"account/gpt-6.1-sol", []string{"codex"}, true},
+		{"gpt-6-sol", []string{"codex"}, false},
+		{"gpt-6.1-sol", []string{"openai-compatibility"}, false},
+		{"gpt-6-astra", []string{"codex", "openai-compatibility"}, false},
+	} {
+		t.Run(tc.model+fmt.Sprint(tc.providers), func(t *testing.T) {
+			resp := BuildResponseForClient([]map[string]any{{"id": tc.model}}, func(string) []string { return tc.providers }, false, "0.166.0")
+			entries := resp["models"].([]map[string]any)
+			if len(entries) != 1 {
+				t.Fatalf("models = %d, want 1", len(entries))
+			}
+			count := 0
+			for _, raw := range entries[0]["service_tiers"].([]any) {
+				tier := raw.(map[string]any)
+				if tier["id"] == "ultrafast" {
+					count++
+					if tier["name"] != "Ultrafast" {
+						t.Errorf("name = %v, want Ultrafast", tier["name"])
+					}
+				}
+			}
+			if (count == 1) != tc.want || count > 1 {
+				t.Errorf("Ultrafast tiers = %d, want advertised %v", count, tc.want)
+			}
+		})
+	}
+}

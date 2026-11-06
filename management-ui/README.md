@@ -24,18 +24,36 @@ v1.27.3 (MIT) with these changes:
 
 ### Where the history comes from
 
-The server has no quota-history endpoint (prox reads `/credentials/quota/history`,
-which CLIProxyAPI does not have). The recorded line is built from successful quota
-reads this browser made, stored in `localStorage` per management URL for 28 days:
+The server samples every Claude and Codex credential's weekly window once a minute and
+keeps 28 days of real readings (`GET /v8/management/credentials/quota/history`). The
+charts therefore show history from while the browser was closed and across server
+restarts. Successful quota reads this browser makes are still logged in `localStorage`
+per management URL, and both are merged in memory:
 
-- Nothing is back-filled. Time when the page was closed, other browsers and the
-  server's own probes are not in the history.
-- The recorded pool line starts only once every account in the pool has a reading.
-- Straight lines join consecutive real readings. Burn rate spreads the spend measured
-  between two readings evenly over the time between them.
+- On the first visit per connection, the browser's weekly readings for credentials that
+  still exist are imported into the server store (`POST` on the same path, up to 100,000
+  rows). The server skips duplicates. The local log is kept, not cleared.
+- The quota page re-reads the server history once a minute while it is open and visible,
+  whether or not auto-read is on. Server readings win on equal timestamps. Server history
+  is not copied to `localStorage`.
+- If the server store is disabled or the endpoint is missing, the charts fall back to the
+  browser log alone, as before.
+- Nothing is back-filled. The recorded pool line starts only once every account in the
+  pool has a reading, and straight lines join consecutive real readings.
+- The current pool value uses whichever reading is newer, the server's sample or this
+  browser's last read. The short-window account cards still come from normal quota reads.
+- Burn rate needs two real readings at least a minute apart. It spreads the spend between
+  readings evenly and ends at the latest reading, never at "now".
 - Everything right of "now" is a dashed projection: measured burn × the future usage
   factor, with each account refilling to its full allowance at its weekly reset.
-- "Clear local history" deletes the log for the current server.
+- "Clear local history" deletes this browser's log for the current server. The server's
+  history stays.
+
+Each provider panel also has one row of server token counts for the last 24 hours
+(`GET /v8/management/observability/usage/tokens`): total, input, output, cache read and
+cache write. Input already includes the cache tokens, and the total is the server's own
+figure. The page re-reads them with the history, once a minute. The row is hidden when
+the server has no token store or no such endpoint.
 
 ## Commands
 
@@ -108,15 +126,18 @@ then `static/` next to `config.yaml`.
 Home (cluster) mode and `disable-control-panel: true` both turn the `/management.html`
 route off.
 
-The panel uses only the existing `/v8/management` API: credentials, config,
-`requests/api-call` for upstream quota reads, and `routing/cooldown/reset`. It needs no
-new server endpoints.
+The panel uses the `/v8/management` API: credentials, config, `requests/api-call` for
+upstream quota reads, `routing/cooldown/reset`, `credentials/quota/history` for the
+persisted weekly history, and `observability/usage/tokens` for token counts. Against a
+server without those endpoints, it stops asking for the session, uses the browser log
+only, and hides the token row.
 
 ## Layout
 
-- `src/features/quota/pool/` holds the pool model, plan units, local history, the
-  routing-order estimate, and the glue between them. All of it is React-free and
-  covered by `tests/quotaPool.test.ts`.
+- `src/features/quota/pool/` holds the pool model, plan units, local and server history,
+  the server sync loop, the routing-order estimate, and the glue between them. Everything
+  except `useQuotaHistory.ts` is React-free and covered by `tests/quotaPool.test.ts` and
+  `tests/quotaServerHistory.test.ts`.
 - `src/features/quota/components/QuotaPool*.tsx` and `QuotaControls.tsx` are the
   charts and controls.
 - Everything else is upstream v1.27.3. Upstream's Bun lockfile, CI workflows and its

@@ -12,12 +12,13 @@
  * - Pools display weighted weekly percentages relative to the largest plan.
  * - Claude/Codex quota can be read on an interval while the page is visible. It only
  *   reads quota; reset credits are never redeemed automatically.
- * - Recorded history is the browser-local log (pool/localHistory.ts).
+ * - Recorded history is the server's weekly history merged with this browser's
+ *   own reads (pool/useQuotaHistory.ts); browser readings are imported once per connection.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { authFilesApi } from '@/services/api';
+import { apiClient, authFilesApi } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { IconSearch, IconX } from '@/components/ui/icons';
@@ -70,9 +71,11 @@ import { buildProviderPool, type PooledQuotaState } from './pool/buildPools';
 import {
   clearQuotaHistory,
   getLastSuccessfulQuota,
+  getQuotaObservation,
   pruneQuotaHistory,
-  useLocalQuotaHistory,
 } from './pool/historyRecorder';
+import { quotaHistorySync, useQuotaHistory } from './pool/useQuotaHistory';
+import { emptyTokenTotals } from './pool/tokenUsage';
 import { historyCoverage, historyCredentialId, seriesFor } from './pool/localHistory';
 import { POOLED_PROVIDERS, isPooledProvider, type PooledProvider } from './pool/planUnits';
 import { POOL_ACCENTS, formatDate } from './pool/poolFormat';
@@ -140,6 +143,7 @@ export function QuotaPage() {
 
   const sessionGeneration = useQuotaStore((state) => state.cacheGeneration);
   const [filesGeneration, setFilesGeneration] = useState<number | null>(null);
+  const [filesRevision, setFilesRevision] = useState<number | null>(null);
   const listRequestRef = useRef(0);
   const loadFiles = useCallback(async () => {
     const requestId = ++listRequestRef.current;
@@ -149,9 +153,11 @@ export function QuotaPage() {
       setLoading(false);
       return;
     }
+    const revision = apiClient.getConnectionRevision();
     const isCurrent = () =>
       requestId === listRequestRef.current &&
-      sessionGeneration === useQuotaStore.getState().cacheGeneration;
+      sessionGeneration === useQuotaStore.getState().cacheGeneration &&
+      revision === apiClient.getConnectionRevision();
     setLoading(true);
     setError('');
     try {
@@ -159,6 +165,7 @@ export function QuotaPage() {
       if (!isCurrent()) return;
       setFiles(data?.files || []);
       setFilesGeneration(sessionGeneration);
+      setFilesRevision(revision);
     } catch (err: unknown) {
       if (!isCurrent()) return;
       const message = err instanceof Error ? err.message : t('notification.refresh_failed');
@@ -304,16 +311,17 @@ export function QuotaPage() {
     });
 
     // Local quota history follows the same rule: deleted credentials are dropped.
-    pruneQuotaHistory(
-      new Set(
-        entries
-          .filter((entry) => isPooledProvider(entry.type))
-          .map((entry) =>
-            historyCredentialId(entry.type as PooledProvider, getQuotaCacheKey(entry.file))
-          )
-      )
+    const historyIds = new Set(
+      entries
+        .filter((entry) => isPooledProvider(entry.type))
+        .map((entry) =>
+          historyCredentialId(entry.type as PooledProvider, getQuotaCacheKey(entry.file))
+        )
     );
-  }, [entries, error, filesGeneration, loading, sessionGeneration]);
+    pruneQuotaHistory(historyIds);
+    // The one-time server import only sends readings of credentials that still exist.
+    if (filesRevision !== null) quotaHistorySync.setKnownCredentials(filesRevision, historyIds);
+  }, [entries, error, filesGeneration, filesRevision, loading, sessionGeneration]);
 
   /* ---------- Loading and actions ---------- */
 
@@ -370,7 +378,7 @@ export function QuotaPage() {
 
   /* ---------- Subscription pools ---------- */
 
-  const history = useLocalQuotaHistory();
+  const { local: localHistory, merged: history, tokens: tokenUsage } = useQuotaHistory();
   const now = useNow();
   const span = useMemo(() => poolSpan(rangeOffset, now), [rangeOffset, now]);
   const days = useMemo(() => poolDays(span), [span]);
@@ -381,6 +389,13 @@ export function QuotaPage() {
         isPooledProvider(entry.type)
       ),
     [entries]
+  );
+  const pooledHistoryIds = useMemo(
+    () =>
+      new Set(
+        pooledEntries.map((entry) => historyCredentialId(entry.type, getQuotaCacheKey(entry.file)))
+      ),
+    [pooledEntries]
   );
   const visiblePooledProviders = useMemo(
     () =>
@@ -404,7 +419,15 @@ export function QuotaPage() {
             const quota = hasWindows(current)
               ? (current as unknown as PooledQuotaState)
               : getLastSuccessfulQuota(provider, key);
-            return { key, label: getQuotaDisplayName(entry.file), file: entry.file, quota };
+            const observation = getQuotaObservation(quota);
+            return {
+              key,
+              label: getQuotaDisplayName(entry.file),
+              file: entry.file,
+              quota,
+              observedAtMs: observation?.atMs ?? null,
+              observedByMs: observation?.byMs ?? null,
+            };
           });
         return buildProviderPool(provider, providerEntries, history, {
           now,
@@ -450,10 +473,11 @@ export function QuotaPage() {
 
   // Auto-read: read Claude/Codex quota through the server on an interval while the page
   // is visible. Reads only; resetQuota (credit redemption) is never called from here.
-  const historyRef = useRef(history);
+  // Due-ness follows this browser's own reads: server samples do not refresh the cards.
+  const historyRef = useRef(localHistory);
   useEffect(() => {
-    historyRef.current = history;
-  }, [history]);
+    historyRef.current = localHistory;
+  }, [localHistory]);
 
   const autoReadReady =
     autoReadMinutes > 0 &&
@@ -596,10 +620,18 @@ export function QuotaPage() {
                   now={now}
                   showAccountLines={showAccountLines}
                   history={{
-                    ...historyCoverage(history, pool.provider, WEEKLY_WINDOW_ID[pool.provider]),
+                    ...historyCoverage(
+                      history,
+                      pool.provider,
+                      WEEKLY_WINDOW_ID[pool.provider],
+                      pooledHistoryIds
+                    ),
                     startedAtMs: history.startedAtMs,
                   }}
                   routingStrategy={routingStrategy}
+                  tokens={
+                    tokenUsage ? (tokenUsage.providers[pool.provider] ?? emptyTokenTotals()) : null
+                  }
                 />
               ))}
             </div>

@@ -122,6 +122,7 @@ func buildCodexClientModelsWithToolCapabilities(models []map[string]any, provide
 				applyCodexClientThinkingMetadata(entry, thinkingSupport, clientVersion)
 			}
 			applyCodexClientProviderCapabilities(entry, id, true, providersForModel)
+			applyCodexClientUltrafastTier(entry, id, metadataID, providersForModel)
 			applyCPAWebSearchCapability(entry, id, webSearchCapabilityForModel, clientVersion)
 			sanitizeCodexClientReasoningMetadata(entry, clientVersion)
 			applyCodexClientVisibilityOverride(entry, id)
@@ -1032,4 +1033,21 @@ func cloneCodexClientModelValue(value any) any {
 	default:
 		return value
 	}
+}
+
+func applyCodexClientUltrafastTier(entry map[string]any, id, metadataID string, providersForModel ProvidersForModelFunc) {
+	if (metadataID != "gpt-6.1-sol" && metadataID != "gpt-6-astra") || !isPureCodexProvider(id, providersForModel) {
+		return
+	}
+	tiers, _ := entry["service_tiers"].([]any)
+	for _, raw := range tiers {
+		if tier, ok := raw.(map[string]any); ok && tier["id"] == "ultrafast" {
+			return
+		}
+	}
+	entry["service_tiers"] = append(tiers, map[string]any{
+		"id":          "ultrafast",
+		"name":        "Ultrafast",
+		"description": "Up to 8x speed, increased usage. Requires Pro $500 or an eligible Enterprise/Edu plan.",
+	})
 }

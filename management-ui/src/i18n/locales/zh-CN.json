@@ -2499,6 +2499,12 @@
     "plan_units": "{{plan}}（{{units}} 单位）",
     "plan_assumed": "无法识别套餐；与路由一致按 1 单位计",
     "read_ago": "{{duration}}前读取",
-    "remaining_of": "{{value}} / {{units}} 单位"
+    "remaining_of": "{{value}} / {{units}} 单位",
+    "tokens_24h": "Token · 24 小时",
+    "tokens_total": "总计",
+    "tokens_input": "输入",
+    "tokens_output": "输出",
+    "tokens_cache_read": "缓存读取",
+    "tokens_cache_write": "缓存写入"
   }
 }

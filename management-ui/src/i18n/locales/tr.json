@@ -2500,6 +2500,12 @@
     "plan_units": "{{plan}} ({{units}} b)",
     "plan_assumed": "Plan tanınmadı; yönlendirici gibi 1 birim sayılır",
     "read_ago": "{{duration}} önce okundu",
-    "remaining_of": "{{value}} / {{units}} b"
+    "remaining_of": "{{value}} / {{units}} b",
+    "tokens_24h": "Token · 24 sa",
+    "tokens_total": "Toplam",
+    "tokens_input": "Girdi",
+    "tokens_output": "Çıktı",
+    "tokens_cache_read": "Önbellek okuma",
+    "tokens_cache_write": "Önbellek yazma"
   }
 }

@@ -9,10 +9,10 @@
  *   (5 units) outweighs a Pro 100 at 40% (4 units). Pools sum units.
  * - The pooled window is the weekly allowance the router ranks on: Claude
  *   `seven-day`, Codex `weekly`.
- * - Recorded history is the browser-local log (localHistory.ts), not a server
- *   archive. The recorded pool line only starts once every pooled account has
- *   at least one real reading; earlier stretches are left blank rather than
- *   filled with guesses.
+ * - Recorded history is the server's minute-by-minute weekly history merged
+ *   with this browser's own reads (serverHistory.ts, localHistory.ts). The
+ *   recorded pool line only starts once every pooled account has at least one
+ *   real reading; earlier stretches are left blank rather than filled with guesses.
  *
  * Pure functions, no React and no clock of its own (`now` is always passed in).
  */
@@ -51,8 +51,8 @@ export const POOL_DAYS_BEFORE_TODAY = 3;
 
 /** Reset instants within this distance are one reset event. */
 const RESET_GROUP_MS = 60 * 1000;
-/** History needs this much coverage before a burn rate means anything. */
-const MIN_BURN_COVERAGE_MS = 10 * 60 * 1000;
+/** Burn needs two real readings at least this far apart. */
+export const MIN_BURN_SPAN_MS = 60 * 1000;
 /** Without a live read, a stored reading this recent still counts as current. */
 export const HISTORY_CURRENT_MAX_AGE_MS = 15 * 60 * 1000;
 const EPSILON = 1e-4;
@@ -87,7 +87,13 @@ export interface PoolAccountInput {
   planAssumed: boolean;
   /** Weekly window from the latest successful read, if any. */
   weekly: LiveWeeklyWindow | null;
-  /** Locally recorded readings of the same weekly window. */
+  /**
+   * Latest time `weekly` can have been read (its read time, or an upper bound when
+   * unknown). A history reading after it is newer and takes precedence. Null when
+   * not even a bound is known; the live read then wins as before.
+   */
+  weeklyObservedByMs?: number | null;
+  /** Recorded readings of the same weekly window (browser and server, merged). */
   history: HistorySeries | null;
 }
 
@@ -104,6 +110,9 @@ export interface PoolAccount {
   periodMs: number | null;
   /** Recorded remaining units over time; resets appear as two points sharing a time. */
   history: PoolPoint[];
+  /** First and last real reading in `history` (it is extended to "now" for drawing). */
+  observedFromMs: number | null;
+  observedToMs: number | null;
   source: 'live' | 'history' | 'none';
 }
 
@@ -178,8 +187,13 @@ export function historySamples(series: HistorySeries | null, units: number): Poo
 
 export function buildPoolAccount(input: PoolAccountInput, now: number): PoolAccount {
   const units = input.units > 0 && Number.isFinite(input.units) ? input.units : 1;
-  const series = input.history;
-  const samples = historySamples(series, units).filter((sample) => sample.atMs <= now);
+  // Readings stamped after `now` (clock skew) wait until they are in the past.
+  const points = input.history?.points.filter((point) => point.atMs <= now) ?? [];
+  const series: HistorySeries | null =
+    input.history && points.length > 0
+      ? { windowMinutes: input.history.windowMinutes, points }
+      : null;
+  const samples = historySamples(series, units);
 
   const account: PoolAccount = {
     key: input.key,
@@ -192,6 +206,8 @@ export function buildPoolAccount(input: PoolAccountInput, now: number): PoolAcco
     nextResetMs: null,
     periodMs: null,
     history: samples,
+    observedFromMs: points.length > 0 ? points[0].atMs : null,
+    observedToMs: points.length > 0 ? points[points.length - 1].atMs : null,
     source: 'none',
   };
 
@@ -202,8 +218,28 @@ export function buildPoolAccount(input: PoolAccountInput, now: number): PoolAcco
       ? live.periodHours * HOUR_MS
       : null;
   const liveReset = live && typeof live.resetAtMs === 'number' ? live.resetAtMs : null;
+  const lastPoint = series ? series.points[series.points.length - 1] : null;
+  const liveBy = typeof input.weeklyObservedByMs === 'number' ? input.weeklyObservedByMs : null;
+  // The newer observation wins: a history reading made after the live read, or a
+  // recent one when nothing was read live.
+  const useHistory =
+    lastPoint !== null &&
+    (liveUsed === null
+      ? now - lastPoint.atMs <= HISTORY_CURRENT_MAX_AGE_MS
+      : liveBy !== null && lastPoint.atMs > liveBy);
 
-  if (liveUsed !== null) {
+  if (useHistory && series && lastPoint) {
+    const periodMs = series.windowMinutes * 60 * 1000;
+    account.periodMs = periodMs;
+    account.source = 'history';
+    if (lastPoint.resetAtMs === null || lastPoint.resetAtMs > now) {
+      account.remaining = toUnits(lastPoint.usedPercent, units);
+      account.nextResetMs = lastPoint.resetAtMs;
+    } else {
+      account.remaining = units;
+      account.nextResetMs = nextBoundary(lastPoint.resetAtMs, periodMs, now);
+    }
+  } else if (liveUsed !== null) {
     account.source = 'live';
     account.periodMs = livePeriodMs;
     if (liveReset === null || liveReset > now) {
@@ -214,29 +250,18 @@ export function buildPoolAccount(input: PoolAccountInput, now: number): PoolAcco
       account.remaining = units;
       account.nextResetMs = livePeriodMs ? nextBoundary(liveReset, livePeriodMs, now) : null;
     }
-  } else if (series && series.points.length > 0) {
-    const last = series.points[series.points.length - 1];
-    if (now - last.atMs <= HISTORY_CURRENT_MAX_AGE_MS) {
-      const periodMs = series.windowMinutes * 60 * 1000;
-      account.periodMs = periodMs;
-      account.source = 'history';
-      if (last.resetAtMs === null || last.resetAtMs > now) {
-        account.remaining = toUnits(last.usedPercent, units);
-        account.nextResetMs = last.resetAtMs;
-      } else {
-        account.remaining = units;
-        account.nextResetMs = nextBoundary(last.resetAtMs, periodMs, now);
-      }
-    }
   }
 
   // Close the recorded line at "now" so it meets the projection.
   if (account.remaining !== null && samples.length > 0) {
-    const last = series?.points[series.points.length - 1];
     const lastSample = samples[samples.length - 1];
-    if (last?.resetAtMs && last.resetAtMs > lastSample.atMs && last.resetAtMs < now) {
-      samples.push({ atMs: last.resetAtMs, value: lastSample.value });
-      samples.push({ atMs: last.resetAtMs, value: units });
+    if (
+      lastPoint?.resetAtMs &&
+      lastPoint.resetAtMs > lastSample.atMs &&
+      lastPoint.resetAtMs < now
+    ) {
+      samples.push({ atMs: lastPoint.resetAtMs, value: lastSample.value });
+      samples.push({ atMs: lastPoint.resetAtMs, value: units });
     }
     if (samples[samples.length - 1].atMs < now) {
       samples.push({ atMs: now, value: account.remaining });
@@ -318,24 +343,38 @@ export function sumPolylines(lines: PoolPoint[][]): { points: PoolPoint[]; jumps
 /* ---------------------------------------------------------------- burn */
 
 /**
- * Average consumption in units per hour over the last `windowHours`.
+ * Average consumption in units per hour over up to `windowHours` of observed
+ * history, ending at the latest real reading (`observed.toMs`). The line drawn
+ * from that reading to "now" is not observed and does not count.
  * Only decreases count: a reset restores quota, it does not un-spend it.
  * Spend between two readings is spread evenly over the time between them, so a
  * gap (page closed) contributes its measured total at an average rate.
- * Null when history covers too little of the window to say.
+ * Null (unknown, not zero) without two real readings at least a minute apart,
+ * or when the latest reading is older than the window.
  */
-export function burnRate(history: PoolPoint[], now: number, windowHours: number): number | null {
-  if (history.length === 0) return null;
-  const from = Math.max(now - windowHours * HOUR_MS, history[0].atMs);
-  if (now - from < MIN_BURN_COVERAGE_MS) return null;
-  const segment = clipPolyline(history, from, now);
+export function burnRate(
+  history: PoolPoint[],
+  now: number,
+  windowHours: number,
+  observed: { fromMs: number | null; toMs: number | null } = {
+    fromMs: history[0]?.atMs ?? null,
+    toMs: history[history.length - 1]?.atMs ?? null,
+  }
+): number | null {
+  if (history.length < 2 || observed.fromMs === null || observed.toMs === null) return null;
+  const windowMs = windowHours * HOUR_MS;
+  const to = Math.min(now, observed.toMs);
+  if (to < now - windowMs) return null;
+  const from = Math.max(to - windowMs, observed.fromMs, history[0].atMs);
+  if (to - from < MIN_BURN_SPAN_MS) return null;
+  const segment = clipPolyline(history, from, to);
   let spent = 0;
   for (let i = 1; i < segment.length; i += 1) {
     if (segment[i].atMs > segment[i - 1].atMs) {
       spent += Math.max(0, segment[i - 1].value - segment[i].value);
     }
   }
-  return spent / ((now - from) / HOUR_MS);
+  return spent / ((to - from) / HOUR_MS);
 }
 
 /* ---------------------------------------------------------- projection */
@@ -433,7 +472,13 @@ export function summarizePool(accounts: PoolAccount[], options: PoolOptions): Po
 
   const burns = new Map<string, number | null>();
   known.forEach((account) =>
-    burns.set(account.key, burnRate(account.history, now, burnWindowHours))
+    burns.set(
+      account.key,
+      burnRate(account.history, now, burnWindowHours, {
+        fromMs: account.observedFromMs,
+        toMs: account.observedToMs,
+      })
+    )
   );
   const measured = Array.from(burns.values()).filter((value): value is number => value !== null);
   const burnPerHour = measured.length > 0 ? measured.reduce((sum, value) => sum + value, 0) : null;

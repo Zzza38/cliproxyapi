@@ -2494,6 +2494,12 @@
     "plan_units": "{{plan}} ({{units}} ед.)",
     "plan_assumed": "План не распознан; считается за 1 единицу, как в маршрутизаторе",
     "read_ago": "прочитано {{duration}} назад",
-    "remaining_of": "{{value}} / {{units}} ед."
+    "remaining_of": "{{value}} / {{units}} ед.",
+    "tokens_24h": "Токены · 24 ч",
+    "tokens_total": "Всего",
+    "tokens_input": "Ввод",
+    "tokens_output": "Вывод",
+    "tokens_cache_read": "Чтение кэша",
+    "tokens_cache_write": "Запись в кэш"
   }
 }

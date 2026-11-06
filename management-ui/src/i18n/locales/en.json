@@ -2500,6 +2500,12 @@
     "plan_units": "{{plan}} ({{units}} u)",
     "plan_assumed": "Plan not recognized; counted as 1 unit, same as the router",
     "read_ago": "read {{duration}} ago",
-    "remaining_of": "{{value}} / {{units}} u"
+    "remaining_of": "{{value}} / {{units}} u",
+    "tokens_24h": "Tokens · 24h",
+    "tokens_total": "Total",
+    "tokens_input": "Input",
+    "tokens_output": "Output",
+    "tokens_cache_read": "Cache read",
+    "tokens_cache_write": "Cache write"
   }
 }

@@ -79,6 +79,7 @@ type authSelectionEligibility struct {
 	requiredKind     string
 	credentialPolicy string
 	disallowFreeAuth bool
+	serviceTier      string
 }
 
 func withRequiredAuthKind(ctx context.Context, requiredKind string) context.Context {
@@ -98,7 +99,10 @@ func credentialPolicyFromContext(ctx context.Context) string {
 }
 
 func authSelectionEligibilityForRequest(ctx context.Context, opts cliproxyexecutor.Options) authSelectionEligibility {
-	eligibility := authSelectionEligibility{disallowFreeAuth: disallowFreeAuthFromMetadata(opts.Metadata)}
+	eligibility := authSelectionEligibility{
+		disallowFreeAuth: disallowFreeAuthFromMetadata(opts.Metadata),
+		serviceTier:      serviceTierFromOptions(opts),
+	}
 	if ctx != nil {
 		eligibility.requiredKind, _ = ctx.Value(requiredAuthKindContextKey{}).(string)
 		eligibility.credentialPolicy, _ = ctx.Value(credentialPolicyContextKey{}).(string)
@@ -110,6 +114,9 @@ func (e authSelectionEligibility) allows(auth *Auth) bool {
 	if auth == nil {
 		return false
 	}
+	if !AuthSupportsServiceTier(auth, e.serviceTier) {
+		return false
+	}
 	if e.requiredKind != "" && auth.AuthKind() != e.requiredKind {
 		return false
 	}
@@ -117,6 +124,27 @@ func (e authSelectionEligibility) allows(auth *Auth) bool {
 		return false
 	}
 	return !e.disallowFreeAuth || !isFreeCodexAuth(auth)
+}
+
+// AuthSupportsServiceTier excludes subscription plans that cannot serve Codex Ultrafast.
+func AuthSupportsServiceTier(auth *Auth, tier string) bool {
+	if auth == nil {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(tier), "ultrafast") ||
+		!strings.EqualFold(strings.TrimSpace(auth.Provider), "codex") || auth.AuthKind() == AuthKindAPIKey {
+		return true
+	}
+	plan := strings.TrimSpace(auth.Attributes["plan_type"])
+	if plan == "" {
+		plan, _ = auth.Metadata["plan_type"].(string)
+	}
+	switch strings.ToLower(strings.TrimSpace(plan)) {
+	case "promax", "ent26", "enterprise", "enterprise_cbp_automation", "enterprise_cbp_usage_based", "edu", "edu_plus", "edu_pro":
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *Manager) syncSchedulerFromSnapshot(auths []*Auth) {

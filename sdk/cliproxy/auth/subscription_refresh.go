@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/quotahistory"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -21,7 +22,7 @@ func (m *Manager) UsesSubscriptionRouting() bool {
 // RefreshSubscriptionQuotas probes credentials outside manager locks. Results
 // are fenced against credential replacement and never persist auth material.
 func (m *Manager) RefreshSubscriptionQuotas(ctx context.Context) {
-	if m == nil || !m.UsesSubscriptionRouting() {
+	if m == nil {
 		return
 	}
 	type job struct {
@@ -67,14 +68,27 @@ func (m *Manager) RefreshSubscriptionQuotas(ctx context.Context) {
 				quota.ObservedAt = time.Now()
 			}
 			m.mu.Lock()
+			accepted := false
+			history := m.historyStore
 			current := m.auths[next.auth.ID]
 			if current != nil && current.RegistrationEpoch == next.auth.RegistrationEpoch && current.CredentialVersion == next.auth.CredentialVersion {
 				previous := current.Quota.Subscription
 				if previous == nil || quota.ObservedAt.After(previous.ObservedAt) {
 					current.Quota.Subscription = quota.Clone()
+					accepted = true
 				}
 			}
 			m.mu.Unlock()
+			if accepted && history != nil && quota.WeeklyKnown {
+				name := next.auth.FileName
+				if name == "" {
+					name = next.auth.ID
+				}
+				_, errHistory := history.Record([]quotahistory.Point{{Credential: name, Provider: next.auth.Provider, At: quota.ObservedAt.UnixMilli(), Used: (1 - quota.WeeklyRemaining) * 100, Reset: quota.WeeklyResetAt.UnixMilli()}}, time.Now())
+				if errHistory != nil {
+					log.WithError(errHistory).Warn("persist subscription quota history")
+				}
+			}
 		}()
 	}
 	workers.Wait()

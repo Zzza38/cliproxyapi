@@ -2454,3 +2454,48 @@ func TestManagerPluginSchedulerUnhandledWithRejectFlagFallsBack(t *testing.T) {
 		t.Fatalf("SelectAuth() got = %v, want auth-a", got)
 	}
 }
+
+func TestManagerUltrafastSkipsIneligibleCodexAccounts(t *testing.T) {
+	for name, selector := range map[string]Selector{
+		"round-robin":                &RoundRobinSelector{},
+		"weighted":                   &WeightedRoundRobinSelector{},
+		"affinity":                   NewSessionAffinitySelectorWithConfig(SessionAffinityConfig{}),
+		"soonest-reset-first":        &SoonestResetFirstSelector{},
+		"sticky-soonest-reset-first": NewSessionAffinitySelector(&SoonestResetFirstSelector{}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			manager := NewManager(nil, selector, nil)
+			manager.executors["codex"] = schedulerTestExecutor{}
+			now := time.Now()
+			for _, account := range []*Auth{
+				{ID: "a-pro100", Provider: "codex", Attributes: map[string]string{"plan_type": "prolite", "websockets": "true"}, Quota: QuotaState{Subscription: &SubscriptionQuota{ObservedAt: now, WeeklyKnown: true, WeeklyResetAt: now.Add(time.Hour), WeeklyRemaining: .9, CapacityMultiplier: 10}}},
+				{ID: "b-pro500", Provider: "codex", Attributes: map[string]string{"plan_type": "promax"}, Quota: QuotaState{Subscription: &SubscriptionQuota{ObservedAt: now, WeeklyKnown: true, WeeklyResetAt: now.Add(24 * time.Hour), WeeklyRemaining: .9, CapacityMultiplier: 50}}},
+			} {
+				if _, err := manager.Register(context.Background(), account); err != nil {
+					t.Fatal(err)
+				}
+			}
+			headers := http.Header{"Session_id": []string{"tier-switch-session"}}
+			if _, _, err := manager.pickNext(context.Background(), "codex", "", cliproxyexecutor.Options{Headers: headers}, nil); err != nil {
+				t.Fatal(err)
+			}
+			opts := cliproxyexecutor.Options{Headers: headers, Metadata: map[string]any{cliproxyexecutor.ServiceTierMetadataKey: "ultrafast"}}
+			for range 3 {
+				got, _, err := manager.pickNext(context.Background(), "codex", "", opts, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got.ID != "b-pro500" {
+					t.Fatalf("Ultrafast selected %s, want b-pro500", got.ID)
+				}
+			}
+			if got, _, err := manager.pickNext(context.Background(), "codex", "", opts, map[string]struct{}{"b-pro500": {}}); err == nil || got != nil {
+				t.Fatalf("Ultrafast fell back to ineligible account: auth=%v error=%v", got, err)
+			}
+			got, _, err := manager.pickNext(context.Background(), "codex", "", cliproxyexecutor.Options{}, map[string]struct{}{"b-pro500": {}})
+			if err != nil || got == nil || got.ID != "a-pro100" {
+				t.Fatalf("standard routing lost Pro100: auth=%v error=%v", got, err)
+			}
+		})
+	}
+}

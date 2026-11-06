@@ -1125,6 +1125,7 @@ func applyClaudeHeadersWithNativeProfile(
 		}
 	}
 	stabilizeDeviceProfile := helps.ClaudeDeviceProfileStabilizationEnabled(cfg)
+	defer helps.PreserveClaudeSafeguardHeaders(r.Header, incomingHeaders, body)
 	var deviceProfile helps.ClaudeDeviceProfile
 	if stabilizeDeviceProfile && confirmedClaudeCode {
 		var errDeviceProfile error
