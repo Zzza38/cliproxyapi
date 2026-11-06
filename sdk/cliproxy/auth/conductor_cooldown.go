@@ -470,6 +470,7 @@ func (m *Manager) ResetQuota(ctx context.Context, authID string) (*Auth, []strin
 	}
 
 	now := time.Now()
+	subscriptionRouting := m.UsesSubscriptionRouting()
 	var snapshot *Auth
 	models := make([]string, 0)
 	registeredModels := modelsForRegisteredAuth(authID)
@@ -505,6 +506,10 @@ func (m *Manager) ResetQuota(ctx context.Context, authID string) (*Auth, []strin
 		}
 	} else if len(auth.ModelStates) > 0 {
 		updateAggregatedAvailability(auth, now)
+	}
+	if subscriptionRouting {
+		// Invalidate pre-reset allowance and fence out probes started before the reset.
+		auth.Quota.Subscription = &SubscriptionQuota{ObservedAt: now}
 	}
 
 	if len(models) == 0 {

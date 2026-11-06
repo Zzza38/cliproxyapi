@@ -52,6 +52,10 @@ func NewCodexAutoExecutor(cfg *config.Config) *CodexAutoExecutor {
 
 func (e *CodexAutoExecutor) Identifier() string { return "codex" }
 
+func (e *CodexAutoExecutor) FetchSubscriptionQuota(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.SubscriptionQuota, error) {
+	return e.httpExec.FetchSubscriptionQuota(ctx, auth)
+}
+
 func (e *CodexAutoExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
 	if e == nil || e.httpExec == nil {
 		return nil

@@ -1,0 +1,8 @@
+overrides:
+  form-data: 4.0.6
+
+# bun ships its runtime through a postinstall step; it runs the upstream bun:test suite.
+allowBuilds:
+  bun: true
+  # Optional sass watcher; builds do not need its native addon.
+  '@parcel/watcher': false

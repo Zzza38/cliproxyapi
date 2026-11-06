@@ -142,7 +142,10 @@ access:
 
 # Routing strategy for selecting credentials when multiple match.
 routing:
-  strategy: "round-robin" # round-robin (default), weighted-round-robin, fill-first
+  strategy: "round-robin" # round-robin (default), weighted-round-robin, fill-first, soonest-reset-first
+  # soonest-reset-first prefers the earliest weekly reset or manual-reset expiry.
+  # Ties prefer remaining weekly allowance in base-plan units. This strategy enables
+  # session affinity automatically. Reset credits are never redeemed automatically.
   # weighted-round-robin uses each credential's integer weight (default 1, maximum 1,000,000).
   # Non-positive weights exclude the credential while this strategy is active.
   # For OAuth/file credentials, add a top-level numeric "weight" field to the auth JSON.

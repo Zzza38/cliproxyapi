@@ -1,0 +1,187 @@
+@use '../../../styles/mixins' as *;
+
+/* Pool chart controls (adapted from yazinsai/prox). Filled 38px controls on the secondary surface. */
+
+%control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--dur-hover) var(--ease-out-strong),
+    background-color var(--dur-hover) var(--ease-out-strong),
+    transform var(--dur-press) var(--ease-out-strong);
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+  }
+
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+}
+
+/* ---------- controls row ---------- */
+
+.controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  min-width: 0;
+}
+
+.segmented {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 3px;
+  border-radius: var(--radius-md);
+  background: var(--bg-tertiary);
+}
+
+.segment {
+  @extend %control;
+  height: 32px;
+  border-radius: 7px;
+
+  &[aria-pressed='true'] {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+}
+
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fieldLabel {
+  font-size: 14px;
+  line-height: 18px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.select {
+  min-width: 150px;
+
+  button[aria-haspopup='listbox'] {
+    height: 38px;
+    border-color: transparent;
+    border-radius: var(--radius-md);
+    background: var(--bg-tertiary);
+    box-shadow: none;
+    color: var(--text-primary);
+    font-weight: 500;
+
+    &:focus-visible,
+    &[aria-expanded='true'] {
+      outline: 2px solid var(--primary-color);
+      outline-offset: 2px;
+    }
+  }
+}
+
+.toggle {
+  @extend %control;
+  background: var(--bg-tertiary);
+
+  &[aria-pressed='true'] {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+}
+
+.range {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+}
+
+.rangeLabel {
+  font-size: 14px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.rangeNav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.iconButton {
+  @extend %control;
+  width: 28px;
+  padding: 0;
+}
+
+.todayButton {
+  @extend %control;
+  padding: 0 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-weight: 500;
+
+  &:disabled {
+    cursor: default;
+  }
+}
+
+.flip {
+  transform: scaleX(-1);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .segment:hover,
+  .toggle:hover,
+  .iconButton:hover {
+    color: var(--text-primary);
+  }
+
+  .iconButton:hover {
+    background: var(--bg-tertiary);
+  }
+
+  .toggle:hover,
+  .todayButton:hover:not(:disabled) {
+    background: var(--bg-hover);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .segment,
+  .toggle,
+  .iconButton,
+  .todayButton {
+    transition: none;
+
+    &:active:not(:disabled) {
+      transform: none;
+    }
+  }
+}
+
+@include mobile {
+  .range {
+    margin-left: 0;
+  }
+}

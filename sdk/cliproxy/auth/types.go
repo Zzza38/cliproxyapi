@@ -178,6 +178,8 @@ type RecentRequestBucket struct {
 
 // QuotaState contains limiter tracking data for a credential.
 type QuotaState struct {
+	// Subscription contains independently refreshed subscription routing data.
+	Subscription *SubscriptionQuota `json:"-"`
 	// Exceeded indicates the credential recently hit a quota error.
 	Exceeded bool `json:"exceeded"`
 	// Reason provides an optional provider specific human readable description.
@@ -200,6 +202,7 @@ type QuotaState struct {
 // Clone returns an independent copy of the quota state.
 func (q QuotaState) Clone() QuotaState {
 	copyQuota := q
+	copyQuota.Subscription = q.Subscription.Clone()
 	if len(q.Signals) > 0 {
 		copyQuota.Signals = make(map[string]string, len(q.Signals))
 		for key, value := range q.Signals {

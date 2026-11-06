@@ -146,6 +146,14 @@ func NewClaudeExecutor(cfg *config.Config) *ClaudeExecutor {
 
 func (e *ClaudeExecutor) Identifier() string { return "claude" }
 
+func (e *ClaudeExecutor) FetchSubscriptionQuota(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.SubscriptionQuota, error) {
+	baseURL := "https://api.anthropic.com"
+	if custom := strings.TrimRight(auth.Attributes["base_url"], "/"); custom != "" {
+		baseURL = strings.TrimSuffix(custom, "/v1")
+	}
+	return helps.FetchSubscriptionQuota(ctx, auth, "claude", baseURL, e.HttpRequest)
+}
+
 func (e *ClaudeExecutor) modelLevelCooling() bool {
 	return e != nil && e.cfg != nil && e.cfg.Claude.ModelLevelCooling
 }
