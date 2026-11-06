@@ -3,8 +3,10 @@ package helps
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,5 +99,33 @@ func TestSubscriptionQuotaReadOnlyFetch(t *testing.T) {
 	}
 	if len(calls) != 2 || len(quota.ManualResetExpiries) != 1 || !quota.WeeklyKnown || quota.CapacityMultiplier != 10 {
 		t.Fatalf("calls=%v quota=%+v", calls, quota)
+	}
+}
+
+func TestClaudeProfileIsReusedBetweenQuotaReads(t *testing.T) {
+	calls := 0
+	now := time.Now()
+	auth := &coreauth.Auth{Quota: coreauth.QuotaState{Subscription: &coreauth.SubscriptionQuota{ProfileCheckedAt: now, CapacityMultiplier: 10}}}
+	q, err := FetchSubscriptionQuota(context.Background(), auth, "claude", "https://example.test", func(_ context.Context, _ *coreauth.Auth, r *http.Request) (*http.Response, error) {
+		calls++
+		if r.URL.Path != "/api/oauth/usage" {
+			t.Fatalf("unnecessary profile fetch: %s", r.URL.Path)
+		}
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"seven_day":{"utilization":20,"resets_at":"2099-01-01T00:00:00Z"}}`))}, nil
+	})
+	if err != nil || calls != 1 || q.CapacityMultiplier != 10 || !q.ProfileCheckedAt.Equal(now) {
+		t.Fatalf("quota=%+v calls=%d err=%v", q, calls, err)
+	}
+}
+
+func TestSubscriptionRetryAfterParsing(t *testing.T) {
+	now := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		raw  string
+		want time.Duration
+	}{{"0", 0}, {"-1", 0}, {"nonsense", 0}, {"600", 10 * time.Minute}, {now.Add(20 * time.Minute).Format(http.TimeFormat), 20 * time.Minute}} {
+		if got := subscriptionRetryAfter(tc.raw, now); got != tc.want {
+			t.Errorf("%q: %v != %v", tc.raw, got, tc.want)
+		}
 	}
 }

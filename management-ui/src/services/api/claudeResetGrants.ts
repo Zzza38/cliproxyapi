@@ -1,5 +1,6 @@
 // Upstream cedar_ember contract, following opencodex anthropic-reset-grants.
 import { apiCallApi } from './apiCall';
+import { claudeAccountReader } from './claudeAccountReads';
 import { CLAUDE_REQUEST_HEADERS } from '@/utils/quota/constants';
 
 export const ANTHROPIC_API_ORIGIN = 'https://api.anthropic.com';
@@ -235,15 +236,19 @@ export function anthropicResetGrantBlocker(
   return null;
 }
 
-async function readAccount(authIndex: string, path: string): Promise<Record<string, unknown>> {
-  const response = await apiCallApi.request(
+async function readAccount(
+  authIndex: string,
+  path: string,
+  fresh = true
+): Promise<Record<string, unknown>> {
+  const response = await claudeAccountReader.read(
     {
       authIndex,
       method: 'GET',
       url: ANTHROPIC_API_ORIGIN + path,
       header: { ...CLAUDE_REQUEST_HEADERS },
     },
-    { timeout: 12000 }
+    fresh
   );
   if (response.statusCode === 401 || response.statusCode === 403)
     throw new AnthropicResetGrantError('auth');
@@ -254,8 +259,8 @@ async function readAccount(authIndex: string, path: string): Promise<Record<stri
   return response.body;
 }
 
-export async function readClaudeResetGrants(authIndex: string) {
-  const body = await readAccount(authIndex, ANTHROPIC_RESET_GRANT_STATUS_PATH);
+export async function readClaudeResetGrants(authIndex: string, fresh = true) {
+  const body = await readAccount(authIndex, ANTHROPIC_RESET_GRANT_STATUS_PATH, fresh);
   const status = parseAnthropicResetGrantStatus(body.cedar_ember);
   if (!status) throw new AnthropicResetGrantError('malformed');
   return status;
@@ -297,6 +302,7 @@ export async function claimClaudeResetGrant(
       },
       { timeout: ANTHROPIC_RESET_GRANT_REDEEM_TIMEOUT_MS }
     );
+    claudeAccountReader.invalidate(authIndex);
     if (response.statusCode === 429) return 'rate_limited';
     if (response.statusCode === 401 || response.statusCode === 403) return 'auth_error';
     const result = isRecord(response.body) ? response.body.result : undefined;

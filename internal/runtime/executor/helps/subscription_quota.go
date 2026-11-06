@@ -44,7 +44,7 @@ func FetchSubscriptionQuota(ctx context.Context, auth *coreauth.Auth, provider, 
 			}
 		}()
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("subscription quota: HTTP %d", resp.StatusCode)
+			return nil, &coreauth.SubscriptionProbeError{Status: resp.StatusCode, Retry: subscriptionRetryAfter(resp.Header.Get("Retry-After"), observedAt)}
 		}
 		return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	}
@@ -62,9 +62,19 @@ func FetchSubscriptionQuota(ctx context.Context, auth *coreauth.Auth, provider, 
 	now := observedAt
 	quota := ParseSubscriptionQuota(provider, body, auth, now)
 	if provider == "claude" {
-		if profile, errProfile := get("/api/oauth/profile"); errProfile == nil {
-			if tier := gjson.GetBytes(profile, "organization.rate_limit_tier").String(); tier != "" {
-				quota.CapacityMultiplier = SubscriptionCapacity(provider, tier, auth)
+		previous := auth.Quota.Subscription
+		if previous != nil && previous.ProfileCheckedAt.Add(time.Hour).After(now) {
+			quota.CapacityMultiplier = previous.CapacityMultiplier
+			quota.ProfileCheckedAt = previous.ProfileCheckedAt
+		} else {
+			quota.ProfileCheckedAt = now
+			if previous != nil && previous.CapacityMultiplier > 0 {
+				quota.CapacityMultiplier = previous.CapacityMultiplier
+			}
+			if profile, errProfile := get("/api/oauth/profile"); errProfile == nil {
+				if tier := gjson.GetBytes(profile, "organization.rate_limit_tier").String(); tier != "" {
+					quota.CapacityMultiplier = SubscriptionCapacity(provider, tier, auth)
+				}
 			}
 		}
 	}
@@ -188,4 +198,14 @@ func SubscriptionCapacity(provider, plan string, auth *coreauth.Auth) float64 {
 		}
 	}
 	return 1
+}
+
+func subscriptionRetryAfter(raw string, now time.Time) time.Duration {
+	if seconds, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64); err == nil && seconds > 0 && seconds < 86400*30 {
+		return time.Duration(seconds) * time.Second
+	}
+	if at, err := http.ParseTime(raw); err == nil && at.After(now) {
+		return at.Sub(now)
+	}
+	return 0
 }

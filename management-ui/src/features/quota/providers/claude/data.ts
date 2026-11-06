@@ -14,7 +14,8 @@ import type {
   ClaudeUsageWindow,
   ClaudeUsagePayload,
 } from '@/types';
-import { apiCallApi, getApiCallErrorMessage } from '@/services/api';
+import { getApiCallErrorMessage } from '@/services/api';
+import { claudeAccountReader } from '@/services/api/claudeAccountReads';
 import { normalizeClaudeUsageSnapshot } from '@/services/api/claudeUsage';
 import {
   CLAUDE_PROFILE_URL,
@@ -213,13 +214,13 @@ const fetchClaudeQuota = async (file: AuthFileItem, t: TFunction): Promise<Claud
   }
 
   const [usageResult, profileResult] = await Promise.allSettled([
-    apiCallApi.request({
+    claudeAccountReader.read({
       authIndex,
       method: 'GET',
       url: CLAUDE_USAGE_URL,
       header: { ...CLAUDE_REQUEST_HEADERS, Accept: 'application/json' },
     }),
-    apiCallApi.request({
+    claudeAccountReader.read({
       authIndex,
       method: 'GET',
       url: CLAUDE_PROFILE_URL,
@@ -266,7 +267,7 @@ const fetchClaudeQuota = async (file: AuthFileItem, t: TFunction): Promise<Claud
     windows,
     extraUsage: snapshot.extraUsage,
     dollarWindows,
-    observedAt: new Date().toISOString(),
+    observedAt: new Date(result.observedAtMs ?? Date.now()).toISOString(),
     planType,
   };
 };

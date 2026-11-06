@@ -112,3 +112,71 @@ func TestSubscriptionResetInvalidatesInFlightProbe(t *testing.T) {
 		t.Fatal("pre-reset observation restored exhaustion")
 	}
 }
+
+func TestClaudeSubscriptionRefreshCadenceAndBackoff(t *testing.T) {
+	now := time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC)
+	m := NewManager(nil, &SoonestResetFirstSelector{}, nil)
+	m.subscriptionNow = func() time.Time { return now }
+	calls := 0
+	limited := false
+	m.RegisterExecutor(&subscriptionTestExecutor{schedulerTestExecutor: schedulerTestExecutor{provider: "claude"}, fetch: func(context.Context, *Auth) (*SubscriptionQuota, error) {
+		calls++
+		if limited {
+			return nil, &SubscriptionProbeError{Status: 429}
+		}
+		return &SubscriptionQuota{ObservedAt: now, WeeklyKnown: true, WeeklyResetAt: now.Add(24 * time.Hour), WeeklyRemaining: .5}, nil
+	}})
+	if _, err := m.Register(context.Background(), &Auth{ID: "a", Provider: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	start := now
+	for minute := 0; minute < 60; minute++ {
+		now = start.Add(time.Duration(minute) * time.Minute)
+		m.RefreshSubscriptionQuotas(context.Background())
+	}
+	if calls != 12 {
+		t.Fatalf("hourly probes = %d, want 12", calls)
+	}
+	current, _ := m.GetByID("a")
+	if !subscriptionQuotaFresh(current.Quota.Subscription, now) {
+		t.Fatal("snapshot expires before next scheduled probe")
+	}
+	limited = true
+	now = start.Add(time.Hour)
+	m.RefreshSubscriptionQuotas(context.Background())
+	state := m.subscriptionRefresh["a"]
+	if !state.next.Equal(now.Add(5 * time.Minute)) {
+		t.Fatalf("first backoff=%v", state.next.Sub(now))
+	}
+	for _, wait := range []time.Duration{10 * time.Minute, 20 * time.Minute, 30 * time.Minute, 30 * time.Minute} {
+		before := calls
+		now = state.next.Add(-time.Second)
+		m.RefreshSubscriptionQuotas(context.Background())
+		if calls != before {
+			t.Fatal("probe attempted during cooldown")
+		}
+		now = state.next
+		m.RefreshSubscriptionQuotas(context.Background())
+		if state.next.Sub(now) != wait {
+			t.Fatalf("backoff=%v, want %v", state.next.Sub(now), wait)
+		}
+	}
+	limited = false
+	now = state.next
+	m.RefreshSubscriptionQuotas(context.Background())
+	if state.failures != 0 || state.next.Sub(now) != 5*time.Minute {
+		t.Fatal("successful read did not restore normal cadence")
+	}
+}
+
+func TestSubscriptionBackoffHonorsRetryAfter(t *testing.T) {
+	if got := subscriptionRetryDelay("claude", 1, &SubscriptionProbeError{Status: 429, Retry: 45 * time.Minute}); got != 45*time.Minute {
+		t.Fatal(got)
+	}
+	if got := subscriptionRetryDelay("claude", 1, &SubscriptionProbeError{Status: 429}); got != 5*time.Minute {
+		t.Fatal(got)
+	}
+	if got := subscriptionRetryDelay("codex", 1, nil); got != time.Minute {
+		t.Fatal(got)
+	}
+}

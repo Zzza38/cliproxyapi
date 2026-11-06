@@ -151,6 +151,8 @@ type resultPolicyHolder struct {
 // Manager orchestrates auth lifecycle, selection, execution, and persistence.
 type Manager struct {
 	historyStore              *quotahistory.Store
+	subscriptionRefresh       map[string]*subscriptionRefreshState
+	subscriptionNow           func() time.Time
 	store                     Store
 	cooldownStore             CooldownStateStore
 	pendingCooldownStateStore CooldownStateStore

@@ -827,7 +827,7 @@ func isAuthBlockedForModel(auth *Auth, model string, now time.Time) (bool, block
 	if auth.Disabled || auth.Status == StatusDisabled {
 		return true, blockReasonDisabled, time.Time{}
 	}
-	if quota := auth.Quota.Subscription; quota != nil && quota.ObservedAt.Add(subscriptionQuotaMaxAge).After(now) && quota.BlockedUntil.After(now) {
+	if quota := auth.Quota.Subscription; subscriptionQuotaFresh(quota, now) && quota.BlockedUntil.After(now) {
 		return true, blockReasonCooldown, quota.BlockedUntil
 	}
 	if hasUnauthorizedAuthFailure(auth) {

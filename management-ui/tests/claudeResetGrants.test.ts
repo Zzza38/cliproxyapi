@@ -1,6 +1,6 @@
 import { selectResetGrant } from '../src/features/quota/providers/claude/selectResetGrant';
 
-import { afterEach, describe, expect, spyOn, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { apiClient } from '../src/services/api/client';
 import {
   anthropicResetGrantBlocker,
@@ -28,6 +28,13 @@ const grant = { id: 'test-grant', resets_total: 2, resets_left: 2, usable_now: t
 const block = { eligible: true, at_limit: true, grants: [grant] };
 const status = () => parseAnthropicResetGrantStatus(block)!;
 const originalRequest = apiCallApi.request;
+let testConnection = 0;
+beforeEach(() =>
+  apiClient.setConfig({
+    apiBase: 'http://reset-test.invalid',
+    managementKey: `fixture-${++testConnection}`,
+  })
+);
 afterEach(() => {
   apiCallApi.request = originalRequest;
 });
@@ -709,5 +716,5 @@ test('account reads map upstream 429 to a sanitized typed rate-limit failure', a
       message: 'Anthropic reset-grant read failed (rate_limited)',
     });
   }
-  expect(calls).toBe(2); // Neither read retries.
+  expect(calls).toBe(1); // Both account endpoints share the same rate-limit cooldown.
 });

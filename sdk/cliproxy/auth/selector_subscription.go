@@ -14,6 +14,8 @@ const subscriptionQuotaMaxAge = 5 * time.Minute
 // credits influence ordering but are never redeemed by the router.
 type SubscriptionQuota struct {
 	ObservedAt          time.Time
+	ValidUntil          time.Time
+	ProfileCheckedAt    time.Time
 	WeeklyResetAt       time.Time
 	WeeklyRemaining     float64
 	WeeklyKnown         bool
@@ -72,7 +74,7 @@ func (s *SoonestResetFirstSelector) Pick(ctx context.Context, provider, model st
 }
 
 func subscriptionRank(q *SubscriptionQuota, now time.Time) (time.Time, float64) {
-	if q == nil || !q.ObservedAt.Add(subscriptionQuotaMaxAge).After(now) {
+	if !subscriptionQuotaFresh(q, now) {
 		return time.Time{}, -1
 	}
 	expiry := q.WeeklyResetAt
@@ -93,4 +95,15 @@ func subscriptionRank(q *SubscriptionQuota, now time.Time) (time.Time, float64) 
 		remaining = math.Max(0, math.Min(1, q.WeeklyRemaining)) * multiplier
 	}
 	return expiry, remaining
+}
+
+func subscriptionQuotaFresh(q *SubscriptionQuota, now time.Time) bool {
+	if q == nil {
+		return false
+	}
+	until := q.ValidUntil
+	if until.IsZero() {
+		until = q.ObservedAt.Add(subscriptionQuotaMaxAge)
+	}
+	return until.After(now)
 }

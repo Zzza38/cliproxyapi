@@ -510,6 +510,7 @@ func (m *Manager) ResetQuota(ctx context.Context, authID string) (*Auth, []strin
 	if subscriptionRouting {
 		// Invalidate pre-reset allowance and fence out probes started before the reset.
 		auth.Quota.Subscription = &SubscriptionQuota{ObservedAt: now}
+		delete(m.subscriptionRefresh, authID)
 	}
 
 	if len(models) == 0 {

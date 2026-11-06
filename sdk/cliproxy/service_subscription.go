@@ -6,7 +6,8 @@ import (
 )
 
 func (s *Service) refreshSubscriptionQuotas(ctx context.Context) {
-	ticker := time.NewTicker(time.Minute)
+	// The heartbeat only schedules due accounts; it does not itself trigger a probe.
+	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
 		if s.coreManager != nil {

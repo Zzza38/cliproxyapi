@@ -7,6 +7,7 @@ import i18n from '@/i18n';
 import { normalizeClaudeUsageSnapshot } from '@/services/api/claudeUsage';
 import { apiCallApi, getApiCallErrorMessage, type ApiCallResult } from '@/services/api/apiCall';
 import { apiClient } from '@/services/api/client';
+import { claudeAccountReader } from '@/services/api/claudeAccountReads';
 import { CLAUDE_CONFIG, hasClaudeUsageData } from '@/features/quota/providers/claude/data';
 import { ClaudeQuotaBody } from '@/features/quota/providers/claude/ClaudeQuotaBody';
 import { buildTimelineLane } from '@/features/quota/quotaTimelineModel';
@@ -180,7 +181,16 @@ describe('Claude OAuth usage API normalization', () => {
 
 describe('Claude quota usage reads', () => {
   const originalRequest = apiCallApi.request;
+  let restoreRead: () => void;
+  beforeEach(() => {
+    // These tests validate uncached response parsing; cache/cooldown behavior has its own suite.
+    const read = spyOn(claudeAccountReader, 'read').mockImplementation((payload) =>
+      apiCallApi.request(payload)
+    );
+    restoreRead = () => read.mockRestore();
+  });
   afterEach(() => {
+    restoreRead();
     apiCallApi.request = originalRequest;
   });
 
