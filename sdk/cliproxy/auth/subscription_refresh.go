@@ -137,7 +137,9 @@ func (m *Manager) RefreshSubscriptionQuotas(ctx context.Context) {
 			if current != nil && current.RegistrationEpoch == next.auth.RegistrationEpoch && current.CredentialVersion == next.auth.CredentialVersion {
 				previous := current.Quota.Subscription
 				if previous == nil || quota.ObservedAt.After(previous.ObservedAt) {
-					quota.ValidUntil = quota.ObservedAt.Add(subscriptionRefreshInterval(next.auth.Provider) + time.Minute)
+					if next.auth.Provider == "claude" {
+						quota.ValidUntil = quota.ObservedAt.Add(subscriptionRefreshInterval(next.auth.Provider) + time.Minute)
+					}
 					current.Quota.Subscription = quota.Clone()
 					accepted = true
 				}
