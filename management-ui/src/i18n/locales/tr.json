@@ -530,7 +530,7 @@
     "plan_pro": "Pro",
     "plan_max": "Max",
     "plan_max5": "Max 5x",
-    "plan_max20": "Max 20x",
+    "plan_max20": "Ultra",
     "plan_team": "Team"
   },
   "codex_quota": {
@@ -2435,7 +2435,7 @@
   },
   "quota_pool": {
     "title": "Abonelik havuzları",
-    "description": "Sağlayıcı başına haftalık kota, temel plan birimi olarak: her hesabın kalan oranı × plan birimi, toplanır. Codex Plus 1, Pro 100 10, Pro 200 20, Pro 500 50. Claude Pro 1, Max 5x 5, Max 20x 10. Bilinmeyen planlar 1 sayılır.",
+    "description": "Sağlayıcı başına haftalık kota, temel plan birimi olarak: her hesabın kalan oranı × plan birimi, toplanır. Codex Plus 1, Pro 100 10, Pro 200 20, Pro 500 50. Claude Pro 1, Max 5x 5, Ultra 10. Bilinmeyen planlar 1 sayılır.",
     "clear_history": "Yerel geçmişi temizle",
     "mode_label": "Grafik",
     "mode_remaining": "Kalan",

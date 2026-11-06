@@ -515,7 +515,7 @@
     "plan_pro": "Pro",
     "plan_max": "Max",
     "plan_max5": "Max 5x",
-    "plan_max20": "Max 20x",
+    "plan_max20": "Ultra",
     "plan_team": "Team"
   },
   "codex_quota": {
@@ -2462,7 +2462,7 @@
   },
   "quota_pool": {
     "title": "訂閱額度池",
-    "description": "按提供商彙總每週額度，單位為基礎方案單位：每個帳號的剩餘比例 × 方案單位後加總。Codex Plus 1、Pro 100 10、Pro 200 20、Pro 500 50；Claude Pro 1、Max 5x 5、Max 20x 10。未知方案按 1 計。",
+    "description": "按提供商彙總每週額度，單位為基礎方案單位：每個帳號的剩餘比例 × 方案單位後加總。Codex Plus 1、Pro 100 10、Pro 200 20、Pro 500 50；Claude Pro 1、Max 5x 5、Ultra 10。未知方案按 1 計。",
     "clear_history": "清除本機歷史",
     "mode_label": "圖表",
     "mode_remaining": "剩餘",

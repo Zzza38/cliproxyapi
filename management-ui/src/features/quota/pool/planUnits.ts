@@ -47,10 +47,10 @@ const CLAUDE_UNITS: Record<string, { units: number; label: string }> = {
   planmax5: { units: 5, label: 'Max 5x' },
   max5x: { units: 5, label: 'Max 5x' },
   defaultclaudemax5x: { units: 5, label: 'Max 5x' },
-  planmax20: { units: 10, label: 'Max 20x' },
-  max20x: { units: 10, label: 'Max 20x' },
-  max10x: { units: 10, label: 'Max 20x' },
-  defaultclaudemax20x: { units: 10, label: 'Max 20x' },
+  planmax20: { units: 10, label: 'Ultra' },
+  max20x: { units: 10, label: 'Ultra' },
+  max10x: { units: 10, label: 'Ultra' },
+  defaultclaudemax20x: { units: 10, label: 'Ultra' },
 };
 
 export function planUnitsFor(

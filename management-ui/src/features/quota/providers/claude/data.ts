@@ -158,7 +158,7 @@ const parseClaudeProfilePayload = (payload: unknown): ClaudeProfileResponse | nu
 
 /**
  * The organization's rate-limit tier is the only field that separates Max 5x
- * from Max 20x (`default_claude_max_5x` / `default_claude_max_20x`); the account
+ * from Ultra (`default_claude_max_5x` / `default_claude_max_20x`); the account
  * flags only say "Max". Pro reports `default_claude_ai`, which Team/Free share,
  * so it is not used to identify Pro.
  */

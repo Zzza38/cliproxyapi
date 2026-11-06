@@ -530,7 +530,7 @@
     "plan_pro": "Pro",
     "plan_max": "Max",
     "plan_max5": "Max 5x",
-    "plan_max20": "Max 20x",
+    "plan_max20": "Ultra",
     "plan_team": "Team"
   },
   "codex_quota": {
@@ -2441,7 +2441,7 @@
   },
   "quota_pool": {
     "title": "Nhóm hạn mức gói đăng ký",
-    "description": "Hạn mức hằng tuần theo nhà cung cấp, tính bằng đơn vị gói cơ bản: tỷ lệ còn lại của mỗi tài khoản × số đơn vị của gói, rồi cộng lại. Codex Plus 1, Pro 100 10, Pro 200 20, Pro 500 50. Claude Pro 1, Max 5x 5, Max 20x 10. Gói không xác định tính là 1.",
+    "description": "Hạn mức hằng tuần theo nhà cung cấp, tính bằng đơn vị gói cơ bản: tỷ lệ còn lại của mỗi tài khoản × số đơn vị của gói, rồi cộng lại. Codex Plus 1, Pro 100 10, Pro 200 20, Pro 500 50. Claude Pro 1, Max 5x 5, Ultra 10. Gói không xác định tính là 1.",
     "clear_history": "Xóa lịch sử cục bộ",
     "mode_label": "Biểu đồ",
     "mode_remaining": "Còn lại",

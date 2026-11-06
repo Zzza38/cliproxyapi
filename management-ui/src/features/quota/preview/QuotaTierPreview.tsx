@@ -175,7 +175,7 @@ const buildAccounts = (): MockAccount[] => [
     quota: codexQuota('promax', [6, 21]),
   },
   {
-    entry: { type: 'claude', file: file('claude-max20.json', 'claude') },
+    entry: { type: 'claude', file: file('claude-ultra.json', 'claude') },
     quota: claudeQuota('plan_max20', [36, 72]),
   },
   {
