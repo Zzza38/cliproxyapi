@@ -17,6 +17,7 @@ import {
 import {
   buildPoolAccount,
   burnRate,
+  valueAt,
   drainSeries,
   historySamples,
   niceCeiling,
@@ -352,9 +353,9 @@ describe('burn and projection', () => {
     expect(summary.burnPerHour).toBeCloseTo(1, 6);
     expect(summary.firstEmpty?.account.key).toBe('early');
     expect(summary.firstEmpty?.atMs).toBe(NOW + 3 * H);
-    // Both resets fall within a minute: early refills 10, late refills 0.2.
+    // Both accounts are consumed by the shared demand before these resets.
     expect(summary.nextReset?.atMs).toBe(NOW + 48 * H);
-    expect(summary.nextReset?.added).toBeCloseTo(10 + 0.2, 6);
+    expect(summary.nextReset?.added).toBeCloseTo(11, 6);
 
     const none = summarizePool([early, late], {
       now: NOW,
@@ -383,6 +384,194 @@ describe('burn and projection', () => {
     expect(summary.recorded).toEqual([]);
     expect(summary.recordedStartMs).toBeNull();
     expect(summary.projected.length).toBeGreaterThan(0);
+  });
+
+  test('moves combined demand onto an account that had no past usage', () => {
+    const active = account({
+      key: 'active',
+      units: 20,
+      remaining: 8,
+      nextResetMs: NOW + 24 * H,
+      history: [
+        { atMs: NOW - H, value: 10 },
+        { atMs: NOW, value: 8 },
+      ],
+    });
+    const idle = account({
+      key: 'idle',
+      units: 20,
+      remaining: 10,
+      nextResetMs: NOW + 48 * H,
+      history: [
+        { atMs: NOW - H, value: 10 },
+        { atMs: NOW, value: 10 },
+      ],
+    });
+    const summary = summarizePool([active, idle], {
+      now: NOW,
+      span: { startMs: NOW - H, endMs: NOW + 12 * H },
+      burnWindowHours: 1,
+      futureUsage: 'same',
+    });
+    expect(summary.burnPerHour).toBeCloseTo(2);
+    expect(summary.poolEmptyAtMs).toBe(NOW + 9 * H);
+    expect(valueAt(summary.projected, NOW + 6 * H)).toBeCloseTo(6);
+    expect(valueAt(summary.accountLines[1].points, NOW + 6 * H)).toBeCloseTo(6);
+  });
+
+  test('measures the pool over a common observation window', () => {
+    const active = account({
+      key: 'active',
+      units: 10,
+      remaining: 3,
+      history: [
+        { atMs: NOW - 3 * H, value: 10 },
+        { atMs: NOW - H, value: 4 },
+        { atMs: NOW, value: 3 },
+      ],
+    });
+    const idle = account({
+      key: 'idle',
+      remaining: 1,
+      history: [
+        { atMs: NOW - H, value: 1 },
+        { atMs: NOW, value: 1 },
+      ],
+    });
+    const summary = summarizePool([active, idle], {
+      now: NOW,
+      span: { startMs: NOW - 3 * H, endMs: NOW + 6 * H },
+      burnWindowHours: 3,
+      futureUsage: 'same',
+    });
+    expect(summary.burnPerHour).toBeCloseTo(1);
+    expect(summary.poolEmptyAtMs).toBe(NOW + 4 * H);
+  });
+
+  test('an account reset cannot hide another account consumption', () => {
+    const reset = account({
+      key: 'reset',
+      units: 10,
+      remaining: 10,
+      history: [
+        { atMs: NOW - H, value: 0 },
+        { atMs: NOW - H / 2, value: 0 },
+        { atMs: NOW - H / 2, value: 10 },
+        { atMs: NOW, value: 10 },
+      ],
+    });
+    const used = account({
+      key: 'used',
+      units: 10,
+      remaining: 8,
+      history: [
+        { atMs: NOW - H, value: 10 },
+        { atMs: NOW - H / 2, value: 8 },
+        { atMs: NOW, value: 8 },
+      ],
+    });
+    const summary = summarizePool([reset, used], {
+      now: NOW,
+      span: { startMs: NOW - H, endMs: NOW + 12 * H },
+      burnWindowHours: 1,
+      futureUsage: 'same',
+    });
+    expect(summary.burnPerHour).toBeCloseTo(2);
+    expect(summary.poolEmptyAtMs).toBe(NOW + 9 * H);
+  });
+
+  test('does not extrapolate a partial pool observation into a known burn', () => {
+    const summary = summarizePool(
+      [
+        account({
+          key: 'known',
+          history: [
+            { atMs: NOW - H, value: 1 },
+            { atMs: NOW, value: 0.5 },
+          ],
+        }),
+        account({ key: 'unobserved', history: [] }),
+      ],
+      {
+        now: NOW,
+        span: { startMs: NOW - H, endMs: NOW + 6 * H },
+        burnWindowHours: 1,
+        futureUsage: 'same',
+      }
+    );
+    expect(summary.burnPerHour).toBeNull();
+    expect(summary.poolEmptyAtMs).toBeNull();
+  });
+
+  test('continues shared demand through staggered resets', () => {
+    const inputs = [
+      account({
+        key: 'a',
+        units: 10,
+        remaining: 5,
+        nextResetMs: NOW + 2 * H,
+        history: [
+          { atMs: NOW - H, value: 7 },
+          { atMs: NOW, value: 5 },
+        ],
+      }),
+      account({
+        key: 'b',
+        units: 10,
+        remaining: 5,
+        nextResetMs: NOW + 4 * H,
+        history: [
+          { atMs: NOW - H, value: 5 },
+          { atMs: NOW, value: 5 },
+        ],
+      }),
+    ];
+    const summary = summarizePool(inputs, {
+      now: NOW,
+      span: { startMs: NOW - H, endMs: NOW + 16 * H },
+      burnWindowHours: 1,
+      futureUsage: 'same',
+    });
+    expect(summary.burnPerHour).toBeCloseTo(2);
+    expect(valueAt(summary.projected, NOW + 3 * H)).toBeCloseTo(13);
+    expect(valueAt(summary.projected, NOW + 4 * H)).toBeCloseTo(20);
+    expect(summary.poolEmptyAtMs).toBe(NOW + 14 * H);
+    expect(summary.projectedJumps.map((jump) => jump.added)).toEqual([9, 9]);
+  });
+
+  test('future usage scales one shared demand rather than individual account rates', () => {
+    const inputs = [
+      account({
+        key: 'active',
+        units: 10,
+        remaining: 4,
+        history: [
+          { atMs: NOW - H, value: 6 },
+          { atMs: NOW, value: 4 },
+        ],
+      }),
+      account({
+        key: 'idle',
+        units: 10,
+        remaining: 8,
+        history: [
+          { atMs: NOW - H, value: 8 },
+          { atMs: NOW, value: 8 },
+        ],
+      }),
+    ];
+    const options = {
+      now: NOW,
+      span: { startMs: NOW - H, endMs: NOW + 15 * H },
+      burnWindowHours: 1,
+    };
+    expect(summarizePool(inputs, { ...options, futureUsage: 'half' }).poolEmptyAtMs).toBe(
+      NOW + 12 * H
+    );
+    expect(summarizePool(inputs, { ...options, futureUsage: 'double' }).poolEmptyAtMs).toBe(
+      NOW + 3 * H
+    );
+    expect(summarizePool(inputs, { ...options, futureUsage: 'none' }).poolEmptyAtMs).toBeNull();
   });
 
   test('derives drain-rate steps from the recorded and projected pool', () => {

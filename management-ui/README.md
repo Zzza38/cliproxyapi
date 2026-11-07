@@ -42,10 +42,12 @@ per management URL, and both are merged in memory:
   pool has a reading, and straight lines join consecutive real readings.
 - The current pool value uses whichever reading is newer, the server's sample or this
   browser's last read. The short-window account cards still come from normal quota reads.
-- Burn rate needs two real readings at least a minute apart. It spreads the spend between
-  readings evenly and ends at the latest reading, never at "now".
-- Everything right of "now" is a dashed projection: measured burn × the future usage
-  factor, with each account refilling to its full allowance at its weekly reset.
+- Burn is measured across the combined pool over one observation interval covered by
+  every account. It needs at least a minute of real readings. Resets do not cancel spend.
+- Everything right of "now" is a dashed projection of that shared demand, multiplied by
+  the future usage factor. Demand consumes the earliest-reset balance first, moves to
+  another account when it empties, and continues after weekly resets. An account with
+  no past usage still contributes usable capacity to the forecast.
 - "Clear local history" deletes this browser's log for the current server. The server's
   history stays.
 

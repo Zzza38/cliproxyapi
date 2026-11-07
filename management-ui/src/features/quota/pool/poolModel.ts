@@ -428,6 +428,101 @@ export function projectAccount(
   return result;
 }
 
+/** Measure total consumption over one interval covered by every account.
+ * Accumulating spend before pooling prevents one account's reset from hiding
+ * another account's consumption at the same instant.
+ */
+export function poolBurnRate(
+  accounts: PoolAccount[],
+  now: number,
+  windowHours: number
+): number | null {
+  if (
+    accounts.length === 0 ||
+    accounts.some(
+      (account) =>
+        account.observedFromMs === null ||
+        account.observedToMs === null ||
+        account.history.length < 2
+    )
+  )
+    return null;
+  const fromMs = Math.max(...accounts.map((account) => account.observedFromMs as number));
+  const toMs = Math.min(...accounts.map((account) => account.observedToMs as number));
+  const spentLines = accounts.map((account) => {
+    let spent = 0;
+    return account.history.map((point, index) => {
+      const previous = account.history[index - 1];
+      if (previous && point.atMs > previous.atMs)
+        spent += Math.max(0, previous.value - point.value);
+      return { atMs: point.atMs, value: -spent };
+    });
+  });
+  return burnRate(sumPolylines(spentLines).points, now, windowHours, { fromMs, toMs });
+}
+
+/** Forecast a single pool-wide demand, moving it to another account when empty.
+ * Reset order chooses which balance supplies demand; past per-account usage
+ * never determines whether an account will be used in the future.
+ */
+export function projectPool(
+  accounts: PoolAccount[],
+  burnPerHour: number,
+  now: number,
+  endMs: number
+): {
+  accounts: AccountProjection[];
+  resets: PoolResetEvent[];
+} {
+  const states = accounts.map((account) => ({
+    account,
+    value: account.remaining ?? 0,
+    reset:
+      account.nextResetMs !== null && account.nextResetMs > now ? account.nextResetMs : Infinity,
+    projection: {
+      key: account.key,
+      points: [{ atMs: now, value: account.remaining ?? 0 }],
+      emptyAtMs: (account.remaining ?? 0) <= EPSILON ? now : null,
+    } as AccountProjection,
+  }));
+  const resets: PoolResetEvent[] = [];
+  const rate = Math.max(0, burnPerHour) / HOUR_MS;
+  let t = now;
+  for (let guard = 0; t < endMs && guard < 20000; guard += 1) {
+    const active = states
+      .filter((state) => state.value > EPSILON)
+      .sort(
+        (a, b) =>
+          (a.reset === b.reset ? 0 : a.reset < b.reset ? -1 : 1) ||
+          b.value - a.value ||
+          a.account.key.localeCompare(b.account.key)
+      )[0];
+    const nextReset = Math.min(...states.map((state) => state.reset));
+    const emptyAt = active && rate > 0 ? t + active.value / rate : Infinity;
+    const until = Math.min(endMs, nextReset, emptyAt);
+    if (active) {
+      active.value = Math.max(0, active.value - (until - t) * rate);
+      if (active.value <= EPSILON && rate > 0) {
+        active.value = 0;
+        active.projection.emptyAtMs ??= until;
+      }
+    }
+    t = until;
+    for (const state of states) state.projection.points.push({ atMs: t, value: state.value });
+    for (const state of states) {
+      if (state.reset !== t) continue;
+      resets.push({ atMs: t, added: state.account.units - state.value });
+      state.value = state.account.units;
+      state.projection.points.push({ atMs: t, value: state.value });
+      state.reset =
+        state.account.periodMs && state.account.periodMs >= HOUR_MS
+          ? t + state.account.periodMs
+          : Infinity;
+    }
+  }
+  return { accounts: states.map((state) => state.projection), resets };
+}
+
 /* ---------------------------------------------------------------- pool */
 
 export interface PoolResetEvent {
@@ -470,18 +565,7 @@ export function summarizePool(accounts: PoolAccount[], options: PoolOptions): Po
   const known = accounts.filter((account) => account.remaining !== null);
   const factor = FUTURE_USAGE_FACTOR[futureUsage];
 
-  const burns = new Map<string, number | null>();
-  known.forEach((account) =>
-    burns.set(
-      account.key,
-      burnRate(account.history, now, burnWindowHours, {
-        fromMs: account.observedFromMs,
-        toMs: account.observedToMs,
-      })
-    )
-  );
-  const measured = Array.from(burns.values()).filter((value): value is number => value !== null);
-  const burnPerHour = measured.length > 0 ? measured.reduce((sum, value) => sum + value, 0) : null;
+  const burnPerHour = poolBurnRate(known, now, burnWindowHours);
 
   // Recorded: only where every known account has real readings, up to now.
   const recordedEnd = Math.min(now, span.endMs);
@@ -500,9 +584,14 @@ export function summarizePool(accounts: PoolAccount[], options: PoolOptions): Po
   const recorded = sumPolylines(Array.from(recordedLines.values()));
 
   // Projected: from now (or the span start, when looking ahead) to the span end.
-  const projections = known.map((account) =>
-    projectAccount(account, (burns.get(account.key) ?? 0) * factor, now, Math.max(span.endMs, now))
+  const nextResetAt = Math.min(...known.map((account) => account.nextResetMs ?? Infinity));
+  const horizon = Math.max(
+    span.endMs,
+    now,
+    Number.isFinite(nextResetAt) ? nextResetAt + RESET_GROUP_MS : now
   );
+  const forecast = projectPool(known, (burnPerHour ?? 0) * factor, now, horizon);
+  const projections = forecast.accounts;
   const projectedStart = Math.max(now, span.startMs);
   const projectedLines = projections.map((projection) =>
     clipPolyline(projection.points, projectedStart, span.endMs)
@@ -530,21 +619,16 @@ export function summarizePool(accounts: PoolAccount[], options: PoolOptions): Po
     return { atMs: projection.emptyAtMs, account: known[index] };
   }, null);
 
-  const upcoming = known
-    .filter((account) => account.nextResetMs !== null && account.nextResetMs > now)
-    .sort((a, b) => (a.nextResetMs as number) - (b.nextResetMs as number));
-  let nextReset: PoolResetEvent | null = null;
-  if (upcoming.length > 0) {
-    const atMs = upcoming[0].nextResetMs as number;
-    const added = upcoming
-      .filter((account) => (account.nextResetMs as number) - atMs <= RESET_GROUP_MS)
-      .reduce((sum, account) => {
-        const burn = (burns.get(account.key) ?? 0) * factor;
-        const before = Math.max(0, (account.remaining as number) - (burn * (atMs - now)) / HOUR_MS);
-        return sum + (account.units - before);
-      }, 0);
-    nextReset = { atMs, added };
-  }
+  const nextAt = forecast.resets[0]?.atMs;
+  const nextReset: PoolResetEvent | null =
+    nextAt === undefined
+      ? null
+      : {
+          atMs: nextAt,
+          added: forecast.resets
+            .filter((reset) => reset.atMs - nextAt <= RESET_GROUP_MS)
+            .reduce((sum, reset) => sum + reset.added, 0),
+        };
 
   return {
     accounts,
