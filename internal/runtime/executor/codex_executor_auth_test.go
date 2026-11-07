@@ -63,22 +63,33 @@ func startCodexMockOAuthServers(t *testing.T, idToken string) (proxyURL string, 
 				http.Error(w, errDial.Error(), http.StatusServiceUnavailable)
 				return
 			}
-			w.WriteHeader(http.StatusOK)
 			hijacker, ok := w.(http.Hijacker)
 			if !ok {
 				_ = destConn.Close()
 				http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
 				return
 			}
-			clientConn, _, errHijack := hijacker.Hijack()
+			clientConn, clientBuffer, errHijack := hijacker.Hijack()
 			if errHijack != nil {
 				_ = destConn.Close()
+				return
+			}
+			// CONNECT must not carry chunked response framing. Keep any TLS bytes
+			// already buffered by net/http when forwarding the tunnel.
+			if _, err := clientBuffer.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+				_ = destConn.Close()
+				_ = clientConn.Close()
+				return
+			}
+			if err := clientBuffer.Flush(); err != nil {
+				_ = destConn.Close()
+				_ = clientConn.Close()
 				return
 			}
 			go func() {
 				defer func() { _ = destConn.Close() }()
 				defer func() { _ = clientConn.Close() }()
-				_, _ = io.Copy(destConn, clientConn)
+				_, _ = io.Copy(destConn, clientBuffer)
 			}()
 			go func() {
 				defer func() { _ = destConn.Close() }()
@@ -345,21 +356,32 @@ func startDualCodexAndSIWCMockOAuthServer(t *testing.T, idToken string, failSIWC
 				http.Error(w, errDial.Error(), http.StatusServiceUnavailable)
 				return
 			}
-			w.WriteHeader(http.StatusOK)
 			hijacker, ok := w.(http.Hijacker)
 			if !ok {
 				_ = destConn.Close()
 				return
 			}
-			clientConn, _, errHijack := hijacker.Hijack()
+			clientConn, clientBuffer, errHijack := hijacker.Hijack()
 			if errHijack != nil {
 				_ = destConn.Close()
+				return
+			}
+			// CONNECT must not carry chunked response framing. Keep any TLS bytes
+			// already buffered by net/http when forwarding the tunnel.
+			if _, err := clientBuffer.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+				_ = destConn.Close()
+				_ = clientConn.Close()
+				return
+			}
+			if err := clientBuffer.Flush(); err != nil {
+				_ = destConn.Close()
+				_ = clientConn.Close()
 				return
 			}
 			go func() {
 				defer func() { _ = destConn.Close() }()
 				defer func() { _ = clientConn.Close() }()
-				_, _ = io.Copy(destConn, clientConn)
+				_, _ = io.Copy(destConn, clientBuffer)
 			}()
 			go func() {
 				defer func() { _ = destConn.Close() }()

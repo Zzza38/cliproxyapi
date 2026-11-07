@@ -54,14 +54,15 @@ func TestQuotaHistoryHandlersPersistImportAndTokenTotals(t *testing.T) {
 	if r := request("POST", "/tokens", tokenData); r.Code != 200 {
 		t.Fatal(r.Body.String())
 	}
-	r = request("GET", "/tokens", "")
+	r = request("GET", "/tokens?from="+jsonNumber(now.Add(-time.Second).UnixMilli())+"&to="+jsonNumber(now.Add(time.Second).UnixMilli()), "")
 	var tokenResult struct {
 		Providers map[string]*quotahistory.TokenTotals `json:"providers"`
 	}
 	if err := json.Unmarshal(r.Body.Bytes(), &tokenResult); err != nil {
 		t.Fatal(err)
 	}
-	if tokenResult.Providers["claude"].Input != 125 || tokenResult.Providers["claude"].CacheRead != 20 {
+	claudeTotals := tokenResult.Providers["claude"]
+	if claudeTotals == nil || claudeTotals.Input != 125 || claudeTotals.CacheRead != 20 {
 		t.Fatal(r.Body.String())
 	}
 	if r := request("GET", "/tokens?from=garbage", ""); r.Code != 400 {
