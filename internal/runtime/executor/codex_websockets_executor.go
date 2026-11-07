@@ -9,12 +9,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/runtime/executor/helps"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	log "github.com/sirupsen/logrus"
-	"github.com/tidwall/gjson"
 )
 
 // CodexWebsocketsExecutor executes Codex Responses requests using a WebSocket transport.
@@ -56,6 +56,11 @@ func (e *CodexAutoExecutor) Identifier() string { return "codex" }
 
 func (e *CodexAutoExecutor) FetchSubscriptionQuota(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.SubscriptionQuota, error) {
 	return e.httpExec.FetchSubscriptionQuota(ctx, auth)
+}
+
+// UsesConfig reports whether the executor was created for cfg.
+func (e *CodexAutoExecutor) UsesConfig(cfg *config.Config) bool {
+	return e != nil && e.httpExec != nil && e.httpExec.cfg == cfg
 }
 
 func (e *CodexAutoExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
@@ -127,6 +132,20 @@ func (e *CodexAutoExecutor) CloseExecutionSession(sessionID string) {
 		return
 	}
 	e.wsExec.CloseExecutionSession(sessionID)
+}
+
+func (e *CodexAutoExecutor) SharesExecutionSessionsWith(other cliproxyauth.ProviderExecutor) bool {
+	if e == nil || e.wsExec == nil {
+		return false
+	}
+	return e.wsExec.SharesExecutionSessionsWith(other)
+}
+
+func (e *CodexAutoExecutor) CloseAuthExecutionSessions(authID string) {
+	if e == nil || e.wsExec == nil {
+		return
+	}
+	e.wsExec.CloseAuthExecutionSessions(authID)
 }
 
 func (e *CodexAutoExecutor) UpstreamDisconnectChan(sessionID string) <-chan error {
@@ -224,9 +243,17 @@ func (e *CodexWebsocketsExecutor) InterruptExecutionSession(ctx context.Context,
 		return cliproxyexecutor.ErrNoActiveUpstreamWebsocket
 	}
 	sess.activeMu.Lock()
-	_, alreadyTerminal := sess.terminalResponseIDs[gjson.GetBytes(payload, "response_id").String()]
+	targetID := ojson.GetBytesNoCopy(payload, "response_id").String()
+	_, alreadyTerminal := sess.terminalResponseIDs[targetID]
 	alreadyTerminal = alreadyTerminal && sess.responseStateConn == conn
-	active := sess.activeConn == conn && sess.activeCh != nil
+	// activeResponseID/Terminal track the running response at read-loop
+	// granularity: only its own id forwards while it runs, and its terminal
+	// event closes the window before teardown clears the channel. Before
+	// response.created the id is unknown, so the live channel alone
+	// authorizes forwarding and upstream validates the frame.
+	liveChannel := sess.activeConn == conn && sess.activeCh != nil
+	active := liveChannel && !sess.activeResponseTerminal &&
+		(sess.activeResponseID == "" || sess.activeResponseID == targetID)
 	var disconnectErr error
 	if sess.terminalConn == conn {
 		disconnectErr = sess.terminalErr
@@ -244,8 +271,14 @@ func (e *CodexWebsocketsExecutor) InterruptExecutionSession(ctx context.Context,
 	}
 	// A retained socket from an earlier turn is not the current upstream.
 	// HTTP turns must fall through to local cancellation instead.
-	if !active {
+	if !liveChannel {
 		return cliproxyexecutor.ErrNoActiveUpstreamWebsocket
+	}
+	// The socket owns this turn, but the frame does not target its running
+	// response. Reject outright: a local HTTP fallback would fabricate an
+	// incomplete event and cancel the healthy websocket turn.
+	if !active {
+		return cliproxyexecutor.ErrUpstreamWebsocketInterruptRejected
 	}
 	if !authEnabled {
 		return fmt.Errorf("websocket credential is no longer enabled")

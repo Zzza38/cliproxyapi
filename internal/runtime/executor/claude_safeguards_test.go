@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestClaudeSafeguardsRoundTrip(t *testing.T) {
@@ -71,11 +71,11 @@ func TestClaudeSafeguardsRoundTrip(t *testing.T) {
 				output = result.Payload
 			}
 			got := <-captured
-			if gjson.GetBytes(got.body, "thinking.display").String() != "updates" {
+			if ojson.GetBytesNoCopy(got.body, "thinking.display").String() != "updates" {
 				t.Fatal("fixture must exercise the proxy-generated progress display")
 			}
 			for _, path := range []string{"safeguards", "future_request_field"} {
-				if gjson.GetBytes(got.body, path).Raw != gjson.GetBytes(payload, path).Raw {
+				if ojson.GetBytesNoCopy(got.body, path).Raw != ojson.GetBytesNoCopy(payload, path).Raw {
 					t.Errorf("changed %s: %s", path, got.body)
 				}
 			}
@@ -88,7 +88,7 @@ func TestClaudeSafeguardsRoundTrip(t *testing.T) {
 					if !strings.HasPrefix(got.headers.Get(header), want) {
 						t.Fatalf("caller betas changed: %q", got.headers.Get(header))
 					}
-					if gjson.GetBytes(got.body, "thinking.display").String() == "updates" && !strings.Contains(got.headers.Get(header), "thinking-display-updates-2026-08-18") {
+					if ojson.GetBytesNoCopy(got.body, "thinking.display").String() == "updates" && !strings.Contains(got.headers.Get(header), "thinking-display-updates-2026-08-18") {
 						t.Fatal("display=updates lost its required beta")
 					}
 					continue

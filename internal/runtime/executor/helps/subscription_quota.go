@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/MoeForge/moego/ojson"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
-	"github.com/tidwall/gjson"
 )
 
 type SubscriptionQuotaRequest func(context.Context, *coreauth.Auth, *http.Request) (*http.Response, error)
@@ -56,7 +56,7 @@ func FetchSubscriptionQuota(ctx context.Context, auth *coreauth.Auth, provider, 
 	if err != nil {
 		return nil, err
 	}
-	if !gjson.ValidBytes(body) {
+	if !ojson.ValidBytes(body) {
 		return nil, fmt.Errorf("subscription quota: invalid JSON")
 	}
 	now := observedAt
@@ -72,13 +72,13 @@ func FetchSubscriptionQuota(ctx context.Context, auth *coreauth.Auth, provider, 
 				quota.CapacityMultiplier = previous.CapacityMultiplier
 			}
 			if profile, errProfile := get("/api/oauth/profile"); errProfile == nil {
-				if tier := gjson.GetBytes(profile, "organization.rate_limit_tier").String(); tier != "" {
+				if tier := ojson.GetBytesNoCopy(profile, "organization.rate_limit_tier").String(); tier != "" {
 					quota.CapacityMultiplier = SubscriptionCapacity(provider, tier, auth)
 				}
 			}
 		}
 	}
-	if provider == "codex" && gjson.GetBytes(body, "rate_limit_reset_credits.available_count").Int() > 0 {
+	if provider == "codex" && ojson.GetBytesNoCopy(body, "rate_limit_reset_credits.available_count").Int() > 0 {
 		resets, errResets := get("/wham/rate-limit-reset-credits")
 		if errResets == nil {
 			quota.ManualResetExpiries = ParseManualResetExpiries(resets, now)
@@ -90,16 +90,16 @@ func FetchSubscriptionQuota(ctx context.Context, auth *coreauth.Auth, provider, 
 // ParseSubscriptionQuota normalizes weekly limits without assuming that Codex's
 // primary window is always the short window; some plans expose only a weekly one.
 func ParseSubscriptionQuota(provider string, body []byte, auth *coreauth.Auth, now time.Time) *coreauth.SubscriptionQuota {
-	q := &coreauth.SubscriptionQuota{ObservedAt: now, CapacityMultiplier: SubscriptionCapacity(provider, gjson.GetBytes(body, "plan_type").String(), auth)}
+	q := &coreauth.SubscriptionQuota{ObservedAt: now, CapacityMultiplier: SubscriptionCapacity(provider, ojson.GetBytesNoCopy(body, "plan_type").String(), auth)}
 	if provider == "claude" {
-		weekly := gjson.GetBytes(body, "seven_day")
+		weekly := ojson.GetBytesNoCopy(body, "seven_day")
 		setSubscriptionWindow(q, weekly.Get("utilization"), parseSubscriptionTime(weekly.Get("resets_at")), true, now)
-		short := gjson.GetBytes(body, "five_hour")
+		short := ojson.GetBytesNoCopy(body, "five_hour")
 		setSubscriptionWindow(q, short.Get("utilization"), parseSubscriptionTime(short.Get("resets_at")), false, now)
 		return q
 	}
 	for _, name := range []string{"primary_window", "secondary_window"} {
-		window := gjson.GetBytes(body, "rate_limit."+name)
+		window := ojson.GetBytesNoCopy(body, "rate_limit."+name)
 		seconds := window.Get("limit_window_seconds").Int()
 		if seconds == 0 {
 			seconds = window.Get("window_minutes").Int() * 60
@@ -112,14 +112,14 @@ func ParseSubscriptionQuota(provider string, body []byte, auth *coreauth.Auth, n
 	}
 	// Backend admission flags can reject usage before a rounded percentage
 	// reaches 100. Keep that account out until a new probe or snapshot expiry.
-	if q.BlockedUntil.IsZero() && (gjson.GetBytes(body, "rate_limit.allowed").Type == gjson.False || gjson.GetBytes(body, "rate_limit.limit_reached").Type == gjson.True) {
+	if q.BlockedUntil.IsZero() && (ojson.GetBytesNoCopy(body, "rate_limit.allowed").Type == ojson.False || ojson.GetBytesNoCopy(body, "rate_limit.limit_reached").Type == ojson.True) {
 		q.BlockedUntil = now.Add(5 * time.Minute)
 	}
 	return q
 }
 
-func setSubscriptionWindow(q *coreauth.SubscriptionQuota, used gjson.Result, reset time.Time, weekly bool, now time.Time) {
-	if !used.Exists() || used.Type != gjson.Number || !reset.After(now) {
+func setSubscriptionWindow(q *coreauth.SubscriptionQuota, used ojson.Result, reset time.Time, weekly bool, now time.Time) {
+	if !used.Exists() || used.Type != ojson.Number || !reset.After(now) {
 		return
 	}
 	value := used.Float()
@@ -136,8 +136,8 @@ func setSubscriptionWindow(q *coreauth.SubscriptionQuota, used gjson.Result, res
 	}
 }
 
-func parseSubscriptionTime(value gjson.Result) time.Time {
-	if value.Type == gjson.Number {
+func parseSubscriptionTime(value ojson.Result) time.Time {
+	if value.Type == ojson.Number {
 		return time.Unix(value.Int(), 0)
 	}
 	if parsed, err := time.Parse(time.RFC3339Nano, value.String()); err == nil {
@@ -153,7 +153,7 @@ func parseSubscriptionTime(value gjson.Result) time.Time {
 // and deadlines that have already passed.
 func ParseManualResetExpiries(body []byte, now time.Time) []time.Time {
 	var expiries []time.Time
-	for _, credit := range gjson.GetBytes(body, "credits").Array() {
+	for _, credit := range ojson.GetBytesNoCopy(body, "credits").Array() {
 		if !strings.EqualFold(credit.Get("status").String(), "available") {
 			continue
 		}

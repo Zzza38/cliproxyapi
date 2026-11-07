@@ -9,12 +9,12 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/MoeForge/moego/ojson"
 	"github.com/gorilla/websocket"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/config"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/auth"
 	core "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/translator"
-	"github.com/tidwall/gjson"
 )
 
 func TestCodexAutoExecutorHTTPRetryBufferFallback(t *testing.T) {
@@ -36,10 +36,10 @@ func TestCodexAutoExecutorHTTPRetryBufferFallback(t *testing.T) {
 				var posts, sockets atomic.Int32
 				upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 				checkPayload := func(body []byte) {
-					if len(gjson.GetBytes(body, "input.0.content").String()) != (1<<20)+100 {
+					if len(ojson.GetBytesNoCopy(body, "input.0.content").String()) != (1<<20)+100 {
 						t.Error("large input changed during transport fallback")
 					}
-					if gjson.GetBytes(body, "instructions").String() != "configured instructions" || gjson.GetBytes(body, "prompt_cache_key").Exists() {
+					if ojson.GetBytesNoCopy(body, "instructions").String() != "configured instructions" || ojson.GetBytesNoCopy(body, "prompt_cache_key").Exists() {
 						t.Error("payload rules were overwritten or filtered fields restored")
 					}
 				}
@@ -69,7 +69,7 @@ func TestCodexAutoExecutorHTTPRetryBufferFallback(t *testing.T) {
 						return
 					}
 					checkPayload(body)
-					if gjson.GetBytes(body, "type").String() != "response.create" {
+					if ojson.GetBytesNoCopy(body, "type").String() != "response.create" {
 						t.Error("missing WebSocket transport frame")
 					}
 					if err = conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"response.completed","response":{"id":"resp-buffer-fallback","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`)); err != nil {

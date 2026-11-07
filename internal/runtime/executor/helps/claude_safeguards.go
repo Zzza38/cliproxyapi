@@ -4,14 +4,14 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tidwall/gjson"
+	"github.com/MoeForge/moego/ojson"
 )
 
 // PreserveClaudeSafeguardHeaders keeps the caller's feature negotiation paired
 // with its safeguards body, including clients newer than our fingerprint.
 // Authentication remains owned by the selected upstream credential.
 func PreserveClaudeSafeguardHeaders(dst, src http.Header, body []byte) {
-	if !gjson.GetBytes(body, "safeguards").Exists() {
+	if !ojson.GetBytesNoCopy(body, "safeguards").Exists() {
 		return
 	}
 	generatedBetas := dst.Get("Anthropic-Beta")
