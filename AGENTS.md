@@ -1,69 +1,64 @@
-# Repository Guidelines
+# AGENTS.md
 
-## Project Scope & Structure
+Go 1.26+ proxy server providing OpenAI/Gemini/Claude/Codex compatible APIs with OAuth and round-robin load balancing.
 
-This is a React 19 + TypeScript + Vite management frontend for CLI Proxy API, not the proxy itself. It exclusively uses the backend v8 Management API under `/v8/management` and the v8 configuration layout; do not add v0 fallbacks or legacy config adapters. Plugin resources and custom HTTP extensions are exceptions: preserve their backend-declared paths. The one sanctioned v0 touchpoint is `src/services/api/legacyBackendProbe.ts`: after a v8 login 404 it only detects an outdated backend to show a clearer error, and must never supply application data or act as a login fallback.
+## Repository
+- GitHub: https://github.com/router-for-me/CLIProxyAPI
 
-- `src/features/`: feature-owned pages, components, hooks, types, and logic. Current features are `dashboard`, `providers`, `authFiles`, `oauth`, `quota`, `config`, `logs`, and `plugins`. Prefer this layout for new feature work.
-- `src/pages/`: remaining route pages outside the feature layout (login, system, and the auth-file OAuth excluded-model/model-alias editors); `LogsPage.tsx` there is only a re-export of the logs feature. Follow nearby conventions when modifying these; do not migrate unrelated code.
-- `src/components/`, `src/hooks/`, `src/utils/`: shared UI, hooks, and utilities. Keep feature-specific code within its feature rather than promoting it prematurely.
-- `src/services/api/`: API client, domain endpoints, and backend data normalization. `src/services/storage/`: browser persistence.
-- `src/stores/`: Zustand state. `src/types/`: shared types. `src/styles/`: global styles and theme tokens.
-- `src/App.tsx`: hash-router setup. `src/router/MainRoutes.tsx`: authenticated route table. `ProtectedRoute` and `MainLayout` guard and wrap the authenticated app.
-- `src/assets/`: bundled assets, including provider icons in `icons/`.
-- `src/i18n/locales/`: `en.json`, `zh-CN.json`, `zh-TW.json`, `ru.json`, `vi.json`, `ko.json`, and `tr.json`, registered in `src/i18n/index.ts`; fallback language is `zh-CN`. Update all seven files when adding or changing translation keys, including accessible labels.
+## Commands
+```bash
+gofmt -w . # Format (required after Go changes)
+go build -o cli-proxy-api ./cmd/server # Build
+go run ./cmd/server # Run dev server
+go test ./... # Run all tests
+go test -v -run TestName ./path/to/pkg # Run single test
+go build -o test-output ./cmd/server && rm test-output # Verify compile (REQUIRED after changes)
+```
+- Common flags: `--config <path>`, `--tui`, `--standalone`, `--local-model`, `--no-browser`, `--oauth-callback-port <port>`
 
-## Build, Test, and Development Commands
+## Config
+- Default config: `config.yaml` (template: `config.example.yaml`)
+- `.env` is auto-loaded from the working directory
+- Auth material defaults under `auths/`
+- Storage backends: file-based default; optional Postgres/git/object store (`PGSTORE_*`, `GITSTORE_*`, `OBJECTSTORE_*`)
 
-Use Bun; `package.json` pins `bun@1.4.3`, and CI uses Node.js 24. Keep dependency changes consistent with `bun.lock`; do not introduce another package manager's lockfile.
+## Architecture
+- `cmd/server/` — Server entrypoint
+- `internal/api/` — Gin HTTP API (routes, middleware, modules)
+- `internal/api/modules/amp/` — Amp integration (Amp-style routes + reverse proxy)
+- `internal/thinking/` — Main thinking/reasoning pipeline. `ApplyThinking()` (apply.go) parses suffixes (`suffix.go`, suffix overrides body), normalizes config to canonical `ThinkingConfig` (`types.go`), normalizes and validates centrally (`validate.go`/`convert.go`), then applies provider-specific output via `ProviderApplier`. Do not break this "canonical representation → per-provider translation" architecture.
+- `internal/runtime/executor/` — Per-provider runtime executors (incl. Codex WebSocket)
+- `internal/translator/` — Provider protocol translators (and shared `common`)
+- `internal/registry/` — Model registry + remote updater (`StartModelsUpdater`); `--local-model` disables remote updates
+- `internal/store/` — Storage implementations and secret resolution
+- `internal/managementasset/` — Config snapshots and management assets
+- `internal/cache/` — Request signature caching
+- `internal/watcher/` — Config hot-reload and watchers
+- `internal/wsrelay/` — WebSocket relay sessions
+- `internal/usage/` — Usage and token accounting
+- `internal/home/` — CLIProxyAPIHome control plane integration (bootstrap, RESP communication, dispatch coordination)
+- `internal/tui/` — Bubbletea terminal UI (`--tui`, `--standalone`)
+- `sdk/cliproxy/` — Embeddable SDK entry (service/builder/watchers/pipeline)
+- `test/` — Cross-module integration tests
 
-- `bun install --frozen-lockfile`: install locked dependencies.
-- `bun run dev`: start Vite at `http://localhost:5173` by default.
-- `bun run build`: TypeScript compilation followed by the production Vite build.
-- `bun run preview`: serve the built output locally.
-- `bun run test`: run all Bun tests.
-- `bun test tests/apiError.test.ts`: example focused test run.
-- `bun run lint`: run ESLint over TypeScript/TSX files. Some rules emit warnings; the current command does not enforce zero warnings.
-- `bun run type-check`: run `tsc --noEmit`; the main TypeScript config includes `src`, not `tests`.
-- `bun run verify`: run tests, lint, and build (which includes TypeScript compilation).
-- `bun run format`: format all `src/**/*.{ts,tsx,css,scss}`. Prefer targeted formatting of changed files during routine work to avoid unrelated diffs.
-
-## Deployment Constraints
-
-The production artifact is a single `dist/index.html` with JS/CSS and bundled assets inlined by `vite-plugin-singlefile`. The release workflow renames it to `management.html` for backend hosting; `vX.Y.Z` tags trigger releases.
-
-Preserve hash routing and single-file deployment. Changes to assets, imports, code splitting, or build configuration must not introduce required external build artifacts. Do not edit generated `dist/` files. App version is injected as `__APP_VERSION__` from `VERSION`, then git tags, then the package version, falling back to `dev`.
-
-## API Contracts & State
-
-- Treat backend contracts as the source of truth. Inspect `../CLIProxyAPI` before changing endpoint names, payloads, provider keys, OAuth callback parameters, auth-file semantics, or plugin/config contracts. If that checkout is unavailable, report the missing evidence rather than guessing; do not modify the backend unless requested.
-- Reuse `apiClient` from `src/services/api/client.ts` for Management API requests through domain modules. It centralizes the API prefix, bearer authentication, error normalization, and response-header handling. Avoid bypassing it with ad hoc requests in components.
-- Preserve the client's event integration: `unauthorized` handles 401s, `server-version-update` carries version/build metadata, and `server-plugin-support-update` carries plugin capability information. Keep plugin routes gated by backend support.
-- Normalize backend fields on read and serialize on write in the API layer; consult `transformers.ts` and the relevant domain module. Keep raw backend field-name handling out of ordinary UI components.
-- `useConfigStore.fetchConfig(forceRefresh?: boolean)` uses a full-config TTL cache and in-flight request deduplication, not section-based fetching. Reuse it where appropriate and invalidate/update caches after mutations using existing store actions.
-- Preserve stale-request guards and cache cleanup when switching connections or logging out. Old asynchronous responses must not overwrite the new session's state.
-- Provider UI capabilities live in `src/features/providers/descriptors.ts`; `adapters.ts` maps provider configs to the shared resource model. Extend these existing abstractions rather than scattering provider-specific conditionals across components.
-
-## Coding Style & UI Conventions
-
-Use 2-space indentation, semicolons, single quotes, ES5 trailing commas, and 100-character line width. Prefer typed React components and `unknown` with narrowing for untrusted data; avoid introducing `any` unless an unavoidable boundary requires it. Use the `@/` alias for `src` imports.
-
-Component files use PascalCase, hooks use `useName`, and API modules use domain names such as `oauth.ts`. SCSS Modules sit beside their page or component as `Name.module.scss`. Vite automatically injects `src/styles/variables.scss` into SCSS; new modules do not need to import it again. Reuse shared components from `src/components/ui/` and existing theme tokens before adding new primitives or hard-coded colors.
-
-Keep user-facing text in i18n. Preserve keyboard interaction, accessible names, focus behavior, and reduced-motion handling when modifying interactive UI. For motion, reuse the timing tokens in `src/styles/themes.scss` (`--ease-out-strong`, `--dur-press`, `--dur-hover`) and the helpers in `src/hooks/motion.ts` (`prefersReducedMotion`, `useRevealOnScroll`, `useRevealGroup`, `useCountUp`) instead of ad hoc durations and easings.
-
-## Testing & Verification
-
-Tests are centralized under `tests/` as `*.test.ts` and use `bun:test`; shared fixtures live in `tests/fixtures/` and helpers in `tests/helpers/`. Existing suites cover pure logic, React server-side static rendering via `renderToStaticMarkup`, and source/contract checks. There is no configured browser DOM test harness; static markup tests do not verify browser interactions. Prefer extracting testable logic and following nearby test patterns rather than introducing a new framework by default.
-
-For code changes, add or update relevant regression tests, run focused tests while iterating, and run `bun run verify` before handoff. For UI changes, also verify the affected route in a browser and include screenshots or notes. Report commands actually run, failures, and anything not verified; if a backend or browser is unavailable, state the limitation explicitly. Documentation-only changes can be checked with diff/content validation instead of a full build.
-
-## Security
-
-Never commit real management keys, provider credentials, auth files, or other secrets; redact them from logs, screenshots, and test fixtures. Management keys are entered at runtime and persisted according to the remember-password setting. `src/services/storage/secureStorage.ts` provides reversible obfuscation, not encryption or a security boundary. Do not weaken authentication, plugin trust checks, or session isolation for convenience.
-
-## Commits & Guidance Maintenance
-
-Use Conventional Commits, such as `feat(providers): add a provider` or `fix(auth-files): preserve disabled actions`. Keep changes focused. Pull requests should include a summary, linked issue when applicable, backend version/reproduction details for integration work, UI screenshots or notes when relevant, and verification results.
-
-Maintain shared repository guidance in `AGENTS.md`. When updating it, synchronize the local `CLAUDE.md` to identical content if present; `CLAUDE.md` is currently ignored and untracked, so shared guidance must not depend on it. Keep guidance aligned with source and configuration rather than duplicating long implementation details.
+## Code Conventions
+- Keep changes small and simple (KISS)
+- Comments in English only
+- If editing code that already contains non-English comments, translate them to English (don’t add new non-English comments)
+- For user-visible strings, keep the existing language used in that file/area
+- New Markdown docs should be in English unless the file is explicitly language-specific (e.g. `README_CN.md`)
+- As a rule, do not make standalone changes to `internal/translator/`. You may modify it only as part of broader changes elsewhere.
+- If a task requires changing only `internal/translator/`, run `gh repo view --json viewerPermission -q .viewerPermission` to confirm you have `WRITE`, `MAINTAIN`, or `ADMIN`. If you do, you may proceed; otherwise, file a GitHub issue including the goal, rationale, and the intended implementation code, then stop further work.
+- `internal/runtime/executor/` should contain executors and their unit tests only. Place any helper/supporting files under `internal/runtime/executor/helps/`.
+- Do not use `github.com/tidwall/gjson`, `github.com/tidwall/sjson`, or Go's standard `encoding/base64`. Always use `github.com/MoeForge/moego/ojson` and `github.com/MoeForge/moego/base64` for all JSON and Base64 operations. All JSON write operations (`Set`, `SetRaw`, `Delete`, etc.) MUST be performed on `*ojson.Doc` (`ojson.NewDoc` / `ojson.NewDocString`), passing `*ojson.Doc` across mutation stages and serializing only once at the final exit (`doc.Bytes()` / `doc.String()`), rather than mutating raw `[]byte` or `string` payloads directly.
+- Payload configuration MUST be the final semantic barrier before sending requests in every executor, including streaming, WebSocket, continuation, retry/fallback, image, and token-count paths where applicable. Complete all built-in payload translation, normalization, injection, and cleanup first, then evaluate and apply user payload rules exactly once to the final business payload. No subsequent logic may overwrite configured values or restore filtered fields. Only necessary transport framing, serialization, signature calculation, and read-only validation may follow without changing business payload semantics. Add regression tests when introducing or changing request-building paths to enforce this ordering.
+- Follow `gofmt`; keep imports goimports-style; wrap errors with context where helpful
+- Do not use `log.Fatal`/`log.Fatalf` (terminates the process); prefer returning errors and logging via logrus
+- Shadowed variables: use method suffix (`errStart := server.Start()`)
+- Wrap defer errors: `defer func() { if err := f.Close(); err != nil { log.Errorf(...) } }()`
+- Use logrus structured logging; avoid leaking secrets/tokens in logs
+- Avoid panics in HTTP handlers; prefer logged errors and meaningful HTTP status codes
+- Timeouts are allowed only during credential acquisition; after an upstream connection is established, do not set timeouts for any subsequent network behavior. Intentional exceptions that must remain allowed are the Codex websocket liveness deadlines in `internal/runtime/executor/codex_websockets_executor.go`, the wsrelay session deadlines in `internal/wsrelay/session.go`, the management APICall timeout in `internal/api/handlers/management/api_tools.go`, and the `cmd/fetch_antigravity_models` utility timeouts
+- Avoid wall-clock `time.Sleep` in TTL, expiration, ordering, or cache-eviction unit tests due to platform timer granularity (e.g. Windows default timer resolution of ~15.6ms) and CI jitter under load; prefer controllable clocks (`nowFunc` / mock clock), explicit timestamp manipulation, or deterministic synchronization primitives.
+- Note: if modifying features that involve CLIProxyAPIHome, check if corresponding updates are needed in the CLIProxyAPIHome repository.
+- Endpoints under the `/v0/management` base URL are deprecated and no longer maintained. For any feature changes, do not modify endpoints under `/v0/management` unless necessary to fix compilation errors.

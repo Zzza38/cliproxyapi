@@ -1,0 +1,358 @@
+@use '../../../styles/mixins' as *;
+
+/* Provider quota pool panel (adapted from yazinsai/prox). --pool-accent is set inline per provider. */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-primary);
+}
+
+.top {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.swatch {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: var(--pool-accent);
+}
+
+.title {
+  margin: 0;
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.count {
+  font-size: 15px;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.figures {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px 40px;
+  min-width: 0;
+}
+
+.headline {
+  display: flex;
+  align-items: baseline;
+  flex: 1 1 auto;
+  gap: 10px;
+  min-width: 0;
+}
+
+.total {
+  font-size: 48px;
+  line-height: 56px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.totalEmpty {
+  color: var(--text-quaternary);
+}
+
+.capacity {
+  font-size: 15px;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.statLabel {
+  font-size: 14px;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.tokens {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.tokensLabel {
+  font-weight: 500;
+}
+
+.tokenItem {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.tokenValue {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.statValue {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  line-height: 18px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.redacted {
+  flex-shrink: 0;
+  width: 34px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--bg-hover);
+}
+
+.identity {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* ---------- chart ---------- */
+
+.chartWrap {
+  position: relative;
+  min-width: 0;
+}
+
+.chart {
+  display: block;
+  max-width: 100%;
+  overflow: visible;
+  font-family: inherit;
+  touch-action: pan-y;
+
+  &:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 4px;
+    border-radius: 6px;
+  }
+}
+
+.axisText {
+  font-size: 12px;
+  fill: var(--text-quaternary);
+}
+
+.dayText {
+  font-size: 12px;
+  fill: var(--text-tertiary);
+}
+
+.gridLine {
+  stroke: var(--border-color);
+}
+
+.dayLine {
+  stroke: color-mix(in srgb, var(--border-color) 70%, transparent);
+}
+
+.nowLine {
+  stroke: var(--border-primary);
+  stroke-opacity: 0.6;
+}
+
+.nowText {
+  font-size: 12px;
+  fill: var(--text-secondary);
+}
+
+.recordedLine,
+.projectedLine,
+.accountLine {
+  fill: none;
+  stroke-linejoin: round;
+}
+
+.recordedLine {
+  stroke-width: 2;
+}
+
+.projectedLine {
+  stroke-width: 2;
+  stroke-dasharray: 6 5;
+}
+
+.accountLine {
+  stroke-width: 1;
+  stroke-opacity: 0.4;
+}
+
+.nowDot {
+  stroke: var(--bg-primary);
+  stroke-width: 2;
+}
+
+.jumpText {
+  font-size: 12px;
+  fill: var(--text-secondary);
+}
+
+.emptyDot {
+  fill: var(--bg-primary);
+  stroke: var(--text-primary);
+  stroke-width: 2;
+}
+
+.emptyText {
+  font-size: 13px;
+  font-weight: 500;
+  fill: var(--text-primary);
+}
+
+.cursorLine {
+  stroke-opacity: 0.6;
+}
+
+.tooltipBox {
+  fill: var(--bg-tertiary);
+}
+
+.tooltipText {
+  font-size: 13px;
+  fill: var(--text-primary);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- legend ---------- */
+
+.legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  font-size: 14px;
+  line-height: 18px;
+  color: var(--text-secondary);
+}
+
+.legendTitle {
+  flex-shrink: 0;
+  width: 70px;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legendSolid {
+  width: 18px;
+  height: 2px;
+  background: var(--pool-accent);
+}
+
+.legendDash {
+  stroke: var(--pool-accent);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+}
+
+.legendNote {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+/* ---------- accounts ---------- */
+
+.accounts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 8px 24px;
+  margin: 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border-color);
+  list-style: none;
+}
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 18px;
+}
+
+.accountValue {
+  margin-left: auto;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.accountReset {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+@include mobile {
+  .panel {
+    padding: 16px;
+  }
+
+  .total {
+    font-size: 36px;
+    line-height: 44px;
+  }
+
+  .legendTitle {
+    width: auto;
+  }
+}
