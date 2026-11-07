@@ -2,6 +2,7 @@ name: docker-image
 
 on:
   push:
+    if: github.repository == 'router-for-me/CLIProxyAPI'
     tags:
       - v*
 
@@ -11,6 +12,7 @@ env:
 
 jobs:
   docker_amd64:
+    if: github.repository == 'router-for-me/CLIProxyAPI'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -49,6 +51,7 @@ jobs:
             ${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}-amd64
 
   docker_arm64:
+    if: github.repository == 'router-for-me/CLIProxyAPI'
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout
@@ -87,6 +90,7 @@ jobs:
             ${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}-arm64
 
   docker_manifest:
+    if: github.repository == 'router-for-me/CLIProxyAPI'
     runs-on: ubuntu-latest
     needs:
       - docker_amd64

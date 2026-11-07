@@ -1,5 +1,10 @@
 # CLI Proxy API
 
+This fork combines upstream CLIProxyAPI with subscription-aware routing and the
+custom management dashboard in [management-ui/](management-ui/README.md). It
+tracks [router-for-me/CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI),
+currently through v8.0.60. See [fork maintenance](docs/fork-maintenance.md).
+
 English | [中文](README_CN.md) | [日本語](README_JA.md)
 
 If you want to use CLIProxyAPI on your desktop, we recommend our [EasyCLIProxyAPI](https://github.com/router-for-me/EasyCLIProxyAPI) desktop client. It provides a graphical configuration UI, automatic updates, system tray integration, and one-click start/stop for the CLIProxyAPI service.
