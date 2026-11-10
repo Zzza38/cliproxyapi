@@ -914,7 +914,17 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 		if executionAuthID != "" && !isPluginExecutorRoute {
 			cliCtx = handlers.WithPinnedAuthID(cliCtx, executionAuthID)
 		}
-		dataChan, _, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, requestJSON, "")
+		dataChan, quotaHeaders, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, requestJSON, "")
+		poolQuota := !isPluginExecutorRoute && h.AuthManager != nil && !h.AuthManager.HomeEnabled()
+		if poolQuota && isCodexResponsesClientRequest(c) {
+			if quotaEvent := pooledCodexQuotaEvent(quotaHeaders); len(quotaEvent) > 0 {
+				if errWrite := writeResponsesWebsocketPayload(writer, wsTimelineLog, quotaEvent, time.Now()); errWrite != nil {
+					cliCancel(errWrite)
+					wsTerminateErr = errWrite
+					return
+				}
+			}
+		}
 		if !selectedAuthObserved {
 			// Plugin/alternate routes bypass auth selection. Keep canonical HTTP-mode
 			// state instead of inheriting the previous pinned websocket mode.
@@ -963,6 +973,7 @@ func (h *OpenAIResponsesAPIHandler) ResponsesWebsocket(c *gin.Context) {
 			wsTimelineLog,
 			passthroughSessionID,
 			responsesWebsocketForwardOptions{
+				poolQuota:                poolQuota,
 				preserveCompletionOutput: preserveNativeOutput.Load,
 				duplexStream:             codexDuplexStream.Load,
 				toolCacheTurn:            toolCacheTurn,

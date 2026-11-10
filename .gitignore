@@ -68,3 +68,5 @@ docker-compose.override.yml
 
 # Local LLM Wiki vault
 .llm-wiki
+
+!docs/client-quota-reporting.md

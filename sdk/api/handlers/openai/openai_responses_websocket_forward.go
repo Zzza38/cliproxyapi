@@ -24,6 +24,7 @@ import (
 )
 
 type responsesWebsocketForwardOptions struct {
+	poolQuota                bool
 	preserveCompletionOutput func() bool
 	duplexStream             func() bool
 	toolCacheTurn            *responsesWebsocketToolCacheTurn
@@ -239,7 +240,7 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesWebsocket(
 			payloads := websocketJSONPayloadsFromChunk(chunk)
 			for i := range payloads {
 				eventType := ojson.GetBytesNoCopy(payloads[i], "type").String()
-				if eventType == "response.subscription_usage" ||
+				if (opts.poolQuota && eventType == "codex.rate_limits") || eventType == "response.subscription_usage" ||
 					(eventType == "response.metadata" && !isCodexResponsesClientRequest(c)) {
 					continue
 				}

@@ -117,6 +117,10 @@ func (s *Server) setupRoutes() {
 		openaiV1.GET("/videos/:video_id", openaiHandlers.VideosRetrieve)
 	}
 
+	// Account reads bypass the model provider URL in Codex app-server.
+	s.engine.GET("/backend-api/wham/usage", AuthMiddleware(s.accessManager), openaiResponsesHandlers.CodexUsage)
+	s.engine.GET("/api/oauth/usage", AuthMiddleware(s.accessManager), claudeCodeHandlers.ClaudeUsage)
+
 	// Codex CLI direct route aliases (chatgpt_base_url compatible)
 	codexDirect := s.engine.Group("/backend-api/codex")
 	codexDirect.Use(AuthMiddleware(s.accessManager))
