@@ -141,3 +141,53 @@ func TestPooledQuotaUsesOnlyAccountsSupportingModel(t *testing.T) {
 		t.Fatalf("unrelated model affected pool: %v", h)
 	}
 }
+
+func TestPooledClaudeUsageIncludesAccountsWithoutInference(t *testing.T) {
+	now := time.Unix(1800000000, 0)
+	reset := strconv.FormatInt(now.Add(time.Hour).Unix(), 10)
+	snapshot := func(used string) *SubscriptionQuota {
+		return &SubscriptionQuota{ObservedAt: now, UsageSignals: map[string]string{
+			"Anthropic-Ratelimit-Unified-7d-Utilization": used,
+			"Anthropic-Ratelimit-Unified-7d-Reset":       reset,
+		}}
+	}
+	m := NewManager(nil, nil, nil)
+	m.auths = map[string]*Auth{
+		"unused": {ID: "unused", Provider: "claude", Quota: QuotaState{Subscription: snapshot("0.75")}},
+		"used":   {ID: "used", Provider: "claude", Quota: QuotaState{Subscription: snapshot("0.12")}},
+	}
+	read := func() http.Header {
+		return m.pooledQuotaHeaders(context.Background(), []string{"claude"}, "", coreexecutor.Options{}, nil, now)
+	}
+	if got := read().Get("Anthropic-Ratelimit-Unified-7d-Utilization"); got != "0.435" {
+		t.Fatalf("weekly pool = %q; want 0.435", got)
+	}
+	if got := read().Get("Anthropic-Ratelimit-Unified-5h-Utilization"); got != "" {
+		t.Fatalf("unknown session quota invented: %q", got)
+	}
+	clone := m.auths["unused"].Quota.Clone()
+	clone.Subscription.UsageSignals["Anthropic-Ratelimit-Unified-7d-Utilization"] = "0"
+	if got := read().Get("Anthropic-Ratelimit-Unified-7d-Utilization"); got != "0.435" {
+		t.Fatalf("clone changed live usage: %q", got)
+	}
+	m.auths["unused"].Quota.Subscription.ObservedAt = now.Add(-6 * time.Minute)
+	if got := read().Get("Anthropic-Ratelimit-Unified-7d-Utilization"); got != "" {
+		t.Fatalf("stale account snapshot counted: %q", got)
+	}
+}
+
+func TestPooledClaudePrefersNewerAccountObservation(t *testing.T) {
+	now := time.Unix(1800000000, 0)
+	q := poolTestQuota("claude", "0.2", now.Add(-time.Minute))
+	q.Subscription = &SubscriptionQuota{ObservedAt: now, UsageSignals: map[string]string{}}
+	m := NewManager(nil, nil, nil)
+	m.auths = map[string]*Auth{"a": {ID: "a", Provider: "claude", Quota: q}}
+	if got := m.pooledQuotaHeaders(context.Background(), []string{"claude"}, "", coreexecutor.Options{}, nil, now); len(got) != 0 {
+		t.Fatalf("newer unknown usage replaced with old inference: %v", got)
+	}
+	m.auths["a"].Quota = poolTestQuota("claude", "0.3", now)
+	m.auths["a"].Quota.Subscription = &SubscriptionQuota{ObservedAt: now.Add(-time.Minute), UsageSignals: map[string]string{}}
+	if got := m.pooledQuotaHeaders(context.Background(), []string{"claude"}, "", coreexecutor.Options{}, nil, now).Get("Anthropic-Ratelimit-Unified-5h-Utilization"); got != "0.3" {
+		t.Fatalf("newer inference discarded: %q", got)
+	}
+}

@@ -49,6 +49,12 @@ func (m *Manager) pooledQuotaHeaders(ctx context.Context, providers []string, mo
 		if a.ID == selected {
 			q.ObserveResponseHeadersForProvider(provider, current, now)
 		}
+		// Account reads also cover idle accounts that have never produced inference headers.
+		if provider == "claude" && subscriptionQuotaFresh(q.Subscription, now) &&
+			q.Subscription.UsageSignals != nil && !q.Subscription.ObservedAt.Before(q.ObservedAt) {
+			q.Signals = q.Subscription.UsageSignals
+			q.ObservedAt = q.Subscription.ObservedAt
+		}
 		if pools[provider] == nil {
 			pools[provider] = make(map[string]QuotaState)
 		}

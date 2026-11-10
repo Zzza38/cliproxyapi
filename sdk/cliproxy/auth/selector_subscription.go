@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"maps"
 	"math"
 	"time"
 
@@ -13,6 +14,8 @@ const subscriptionQuotaMaxAge = 5 * time.Minute
 // SubscriptionQuota is a read-only snapshot of subscription allowance. Reset
 // credits influence ordering but are never redeemed by the router.
 type SubscriptionQuota struct {
+	// UsageSignals contains only normalized account-usage windows, never spend or reset credits.
+	UsageSignals        map[string]string
 	ObservedAt          time.Time
 	ValidUntil          time.Time
 	ProfileCheckedAt    time.Time
@@ -29,6 +32,7 @@ func (q *SubscriptionQuota) Clone() *SubscriptionQuota {
 		return nil
 	}
 	copyQuota := *q
+	copyQuota.UsageSignals = maps.Clone(q.UsageSignals)
 	copyQuota.ManualResetExpiries = append([]time.Time(nil), q.ManualResetExpiries...)
 	return &copyQuota
 }
