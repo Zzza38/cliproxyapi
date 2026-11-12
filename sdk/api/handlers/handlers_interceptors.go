@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/promptarchive"
 	coreexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 	"golang.org/x/net/context"
@@ -114,6 +115,7 @@ type requestLifecycleTracker struct {
 	host         PluginInterceptorHost
 	skipPluginID string
 	completion   pluginapi.RequestCompletion
+	prompt       *promptarchive.Capture
 }
 
 func (h *BaseAPIHandler) newRequestLifecycleTracker(ctx context.Context, sourceFormat, model, requestedModel string, stream bool, metadata map[string]any, skipPluginID string) *requestLifecycleTracker {
@@ -148,6 +150,7 @@ func (t *requestLifecycleTracker) complete(outcome pluginapi.RequestCompletionOu
 		return
 	}
 	t.once.Do(func() {
+		t.finishPrompt(outcome, statusCode, err)
 		completion := t.completion
 		completion.Outcome = outcome
 		completion.StatusCode = statusCode

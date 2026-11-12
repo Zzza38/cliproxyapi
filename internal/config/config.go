@@ -69,6 +69,9 @@ type Config struct {
 	// KVStore configures the local bbolt key-value store.
 	KVStore KVStoreConfig `yaml:"kv-store" json:"kv-store"`
 
+	// PromptArchive configures the compressed archive of every proxied prompt and reply.
+	PromptArchive PromptArchiveConfig `yaml:"prompt-archive" json:"prompt-archive"`
+
 	// CommercialMode disables high-overhead request logging and HTTP middleware features to minimize per-request memory usage.
 	CommercialMode bool `yaml:"commercial-mode" json:"commercial-mode"`
 

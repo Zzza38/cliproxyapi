@@ -30,6 +30,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/managementasset"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/pluginhost"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/promptarchive"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/redisqueue"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/safemode"
@@ -72,6 +73,9 @@ func shouldEnableExampleAPIKeySafeMode(cfg *config.Config, commandMode, tuiMode,
 // It parses command-line flags, loads configuration, and starts the appropriate
 // service based on the provided flags (login, codex-login, or server mode).
 func main() {
+	if configPath, promptArgs, ok := promptsSubcommand(os.Args[1:]); ok {
+		os.Exit(promptarchive.RunCLI(promptArgs, configPath, os.Stdout, os.Stderr))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "discover" {
 		discoverFlags := flag.NewFlagSet("discover", flag.ExitOnError)
 		timeoutSec := discoverFlags.Int("timeout", 3, "Discovery timeout in seconds")
@@ -981,4 +985,27 @@ func splitArgvFlag(arg string) (name, value string, hasValue bool) {
 	arg = strings.TrimPrefix(arg, "-")
 	name, value, hasValue = strings.Cut(arg, "=")
 	return name, value, hasValue
+}
+
+// promptsSubcommand detects "prompts" as the first positional argument. It allows
+// a leading -config flag so wrapper scripts that always pass one keep working.
+func promptsSubcommand(args []string) (configPath string, rest []string, ok bool) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "prompts":
+			return configPath, args[i+1:], true
+		case arg == "-config" || arg == "--config":
+			if i+1 >= len(args) {
+				return "", nil, false
+			}
+			configPath = args[i+1]
+			i++
+		case strings.HasPrefix(arg, "-config=") || strings.HasPrefix(arg, "--config="):
+			configPath = arg[strings.Index(arg, "=")+1:]
+		default:
+			return "", nil, false
+		}
+	}
+	return "", nil, false
 }
