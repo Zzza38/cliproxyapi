@@ -474,6 +474,39 @@ func (c KVStoreConfig) EffectivePathForAuthDir(authDir string) string {
 	return filepath.Join(baseDir, DefaultKVStorePath)
 }
 
+// DefaultPromptArchiveDir is the prompt archive directory name under auth-dir.
+const DefaultPromptArchiveDir = "prompt-archive"
+
+// PromptArchiveConfig holds settings for the compressed prompt archive.
+type PromptArchiveConfig struct {
+	// Enable records every proxied model request and its reply.
+	Enable bool `yaml:"enable" json:"enable"`
+
+	// Dir is the archive directory. When empty, it defaults to "<auth-dir>/prompt-archive".
+	Dir string `yaml:"dir,omitempty" json:"dir,omitempty"`
+
+	// MaxSizeMB prunes the oldest archive segments once the archive exceeds this size. 0 keeps everything.
+	MaxSizeMB int `yaml:"max-size-mb,omitempty" json:"max-size-mb,omitempty"`
+
+	// MaxAgeDays prunes archive segments whose newest record is older than this. 0 keeps everything.
+	MaxAgeDays int `yaml:"max-age-days,omitempty" json:"max-age-days,omitempty"`
+}
+
+// EffectivePromptArchiveDir returns the configured archive directory or "<auth-dir>/prompt-archive".
+func (cfg *Config) EffectivePromptArchiveDir() string {
+	if cfg == nil {
+		return filepath.Join(DefaultAuthDir, DefaultPromptArchiveDir)
+	}
+	if trimmed := strings.TrimSpace(cfg.PromptArchive.Dir); trimmed != "" {
+		return trimmed
+	}
+	baseDir := strings.TrimSpace(cfg.AuthDir)
+	if baseDir == "" {
+		baseDir = DefaultAuthDir
+	}
+	return filepath.Join(baseDir, DefaultPromptArchiveDir)
+}
+
 // EffectiveKVStorePath returns the configured KVStore.Path or "<auth-dir>/kv.db" when empty.
 func (cfg *Config) EffectiveKVStorePath() string {
 	if cfg == nil {

@@ -1297,6 +1297,19 @@ observability:
     # Default: 60. Max: 3600.
     redis-usage-queue-retention-seconds: 60
 
+  # Record every proxied model request and its reply in a deduplicated, zstd-compressed archive.
+  # Conversation history that clients resend each turn is stored once, so the archive stays small.
+  # Browse it at http://<host>:<port>/prompts (management key required) or run
+  # "cli-proxy-api prompts --help". Records include full prompt text; protect the directory.
+  prompt-archive:
+    enable: false
+    # Archive directory. Defaults to "<auth-dir>/prompt-archive".
+    # dir: "/var/lib/cliproxy/prompt-archive"
+    # Prune the oldest data once the archive exceeds this size. 0 keeps everything.
+    max-size-mb: 0
+    # Prune data older than this many days. 0 keeps everything.
+    max-age-days: 0
+
   # Enable pprof HTTP debug server (host:port). Keep it bound to localhost for safety.
   pprof:
     enable: false
