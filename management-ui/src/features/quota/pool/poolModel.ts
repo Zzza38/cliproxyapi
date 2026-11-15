@@ -14,10 +14,16 @@
  *   recorded pool line only starts once every pooled account has at least one
  *   real reading; earlier stretches are left blank rather than filled with guesses.
  *
+ * - Future demand comes from the server's hourly forecast (serverForecast.ts):
+ *   a neural network or a 24h average, whichever backtested better. Without a
+ *   fresh server forecast it falls back to the average over the selected burn
+ *   window.
+ *
  * Pure functions, no React and no clock of its own (`now` is always passed in).
  */
 
 import type { HistorySeries } from './localHistory';
+import type { ForecastMethod, ServerForecast } from './serverForecast';
 import type { PooledProvider } from './planUnits';
 
 export const HOUR_MS = 60 * 60 * 1000;
@@ -447,6 +453,19 @@ export function poolBurnRate(
     )
   )
     return null;
+  const { points, fromMs, toMs } = poolSpentLine(accounts);
+  return burnRate(points, now, windowHours, { fromMs, toMs });
+}
+
+/**
+ * Negated cumulative spend of the pool (falls as quota is consumed, never rises
+ * at a reset) and the interval every account has readings for.
+ */
+function poolSpentLine(accounts: PoolAccount[]): {
+  points: PoolPoint[];
+  fromMs: number;
+  toMs: number;
+} {
   const fromMs = Math.max(...accounts.map((account) => account.observedFromMs as number));
   const toMs = Math.min(...accounts.map((account) => account.observedToMs as number));
   const spentLines = accounts.map((account) => {
@@ -458,16 +477,45 @@ export function poolBurnRate(
       return { atMs: point.atMs, value: -spent };
     });
   });
-  return burnRate(sumPolylines(spentLines).points, now, windowHours, { fromMs, toMs });
+  return { points: sumPolylines(spentLines).points, fromMs, toMs };
 }
+
+/** A server forecast whose first hour starts earlier than this is stale. */
+const FORECAST_MAX_STALENESS_MS = 3 * HOUR_MS;
+
+/**
+ * Pool demand over time. Hourly `rates` start at `startMs`; outside them
+ * (before the first or after the last) the demand is `fallback`.
+ */
+export interface DemandSchedule {
+  startMs: number;
+  stepMs: number;
+  rates: number[];
+  fallback: number;
+}
+
+const demandAt = (demand: number | DemandSchedule, t: number): number => {
+  if (typeof demand === 'number') return demand;
+  const index = Math.floor((t - demand.startMs) / demand.stepMs);
+  return index >= 0 && index < demand.rates.length ? demand.rates[index] : demand.fallback;
+};
+
+/** Next instant after `t` where the demand may change. */
+const nextDemandChange = (demand: number | DemandSchedule, t: number): number => {
+  if (typeof demand === 'number') return Infinity;
+  const index = Math.floor((t - demand.startMs) / demand.stepMs);
+  if (index >= demand.rates.length) return Infinity;
+  return demand.startMs + (Math.max(-1, index) + 1) * demand.stepMs;
+};
 
 /** Forecast a single pool-wide demand, moving it to another account when empty.
  * Reset order chooses which balance supplies demand; past per-account usage
  * never determines whether an account will be used in the future.
+ * `demand` is a constant rate in units per hour, or an hourly schedule.
  */
 export function projectPool(
   accounts: PoolAccount[],
-  burnPerHour: number,
+  demand: number | DemandSchedule,
   now: number,
   endMs: number
 ): {
@@ -486,9 +534,9 @@ export function projectPool(
     } as AccountProjection,
   }));
   const resets: PoolResetEvent[] = [];
-  const rate = Math.max(0, burnPerHour) / HOUR_MS;
   let t = now;
   for (let guard = 0; t < endMs && guard < 20000; guard += 1) {
+    const rate = Math.max(0, demandAt(demand, t)) / HOUR_MS;
     const active = states
       .filter((state) => state.value > EPSILON)
       .sort(
@@ -499,7 +547,7 @@ export function projectPool(
       )[0];
     const nextReset = Math.min(...states.map((state) => state.reset));
     const emptyAt = active && rate > 0 ? t + active.value / rate : Infinity;
-    const until = Math.min(endMs, nextReset, emptyAt);
+    const until = Math.min(endMs, nextReset, emptyAt, nextDemandChange(demand, t));
     if (active) {
       active.value = Math.max(0, active.value - (until - t) * rate);
       if (active.value <= EPSILON && rate > 0) {
@@ -540,6 +588,23 @@ export interface PoolSummary {
   capacity: number;
   /** Pool burn over the selected window, units per hour; null without enough history. */
   burnPerHour: number | null;
+  /**
+   * What drives the projection: the neural forecast, the window average, or
+   * nothing (no measurable burn).
+   */
+  forecast: {
+    /** 'server' when the server forecast drives the projection, 'window' for the local average. */
+    source: 'server' | 'window' | null;
+    /** Server method behind the forecast, when source is 'server'. */
+    method: ForecastMethod | null;
+    /** Mean predicted demand over the next 24 hours, units per hour (before future usage). */
+    next24hPerHour: number | null;
+    /** Server backtest: next-24h error per method and days scored. */
+    backtestMae: ServerForecast['backtestMae'];
+    backtestDays: number;
+    /** Holdout error reduction of the served network; null when unmeasured. */
+    skill: number | null;
+  };
   recorded: PoolPoint[];
   recordedJumps: PoolJump[];
   /** Start of the recorded pool line (every known account has a reading from here on). */
@@ -558,6 +623,8 @@ export interface PoolOptions {
   span: { startMs: number; endMs: number };
   burnWindowHours: number;
   futureUsage: FutureUsage;
+  /** Server-trained hourly demand for this provider, if any. */
+  serverForecast?: ServerForecast | null;
 }
 
 export function summarizePool(accounts: PoolAccount[], options: PoolOptions): PoolSummary {
@@ -590,7 +657,8 @@ export function summarizePool(accounts: PoolAccount[], options: PoolOptions): Po
     now,
     Number.isFinite(nextResetAt) ? nextResetAt + RESET_GROUP_MS : now
   );
-  const forecast = projectPool(known, (burnPerHour ?? 0) * factor, now, horizon);
+  const demand = poolDemand(options.serverForecast ?? null, burnPerHour, now);
+  const forecast = projectPool(known, scaleDemand(demand.schedule, factor), now, horizon);
   const projections = forecast.accounts;
   const projectedStart = Math.max(now, span.startMs);
   const projectedLines = projections.map((projection) =>
@@ -639,6 +707,7 @@ export function summarizePool(accounts: PoolAccount[], options: PoolOptions): Po
         : null,
     capacity: known.reduce((sum, account) => sum + account.units, 0),
     burnPerHour,
+    forecast: demand.info,
     recorded: recorded.points,
     recordedJumps: recorded.jumps,
     recordedStartMs: recorded.points.length > 1 ? recordedStart : null,
@@ -654,6 +723,61 @@ export function summarizePool(accounts: PoolAccount[], options: PoolOptions): Po
     nextReset,
   };
 }
+
+/** The server forecast when it is fresh, else the selected window's average. */
+function poolDemand(
+  server: ServerForecast | null,
+  burnPerHour: number | null,
+  now: number
+): { schedule: number | DemandSchedule; info: PoolSummary['forecast'] } {
+  if (
+    server &&
+    server.rates.length > 0 &&
+    server.startMs >= now - FORECAST_MAX_STALENESS_MS &&
+    server.startMs <= now + HOUR_MS
+  ) {
+    const schedule: DemandSchedule = {
+      startMs: server.startMs,
+      stepMs: server.stepMs,
+      rates: server.rates,
+      fallback: server.rates[server.rates.length - 1],
+    };
+    const day = 24;
+    let sum = 0;
+    for (let h = 0; h < day; h += 1) sum += demandAt(schedule, now + h * HOUR_MS);
+    return {
+      schedule,
+      info: {
+        source: 'server',
+        method: server.method,
+        next24hPerHour: sum / day,
+        backtestMae: server.backtestMae,
+        backtestDays: server.backtestDays,
+        skill: server.method === 'average' ? null : server.skill,
+      },
+    };
+  }
+  return {
+    schedule: burnPerHour ?? 0,
+    info: {
+      source: burnPerHour === null ? null : 'window',
+      method: null,
+      next24hPerHour: burnPerHour,
+      backtestMae: {},
+      backtestDays: 0,
+      skill: null,
+    },
+  };
+}
+
+const scaleDemand = (demand: number | DemandSchedule, factor: number): number | DemandSchedule =>
+  typeof demand === 'number'
+    ? demand * factor
+    : {
+        ...demand,
+        rates: demand.rates.map((rate) => rate * factor),
+        fallback: demand.fallback * factor,
+      };
 
 /* --------------------------------------------------------------- drain */
 

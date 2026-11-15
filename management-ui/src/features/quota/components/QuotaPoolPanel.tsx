@@ -93,6 +93,38 @@ export function QuotaPoolPanel(props: QuotaPoolPanelProps) {
         ? t('quota_pool.empty_now')
         : formatWhen(summary.poolEmptyAtMs, now, locale);
 
+  const { forecast } = summary;
+  const neuralMae = Math.min(
+    forecast.backtestMae['neural-spend'] ?? Infinity,
+    forecast.backtestMae['neural-tokens'] ?? Infinity
+  );
+  const forecastRate = forecast.next24hPerHour === null ? '' : rate(forecast.next24hPerHour);
+  const forecastLabel =
+    forecast.source === 'window'
+      ? t('quota_pool.forecast_window', { rate: forecastRate })
+      : forecast.method === 'average'
+        ? t('quota_pool.forecast_average', { rate: forecastRate })
+        : t('quota_pool.forecast_neural', { rate: forecastRate });
+  const forecastHint =
+    forecast.source !== 'server'
+      ? t('quota_pool.forecast_window_hint', { hours: burnWindowHours })
+      : forecast.method === 'average'
+        ? t('quota_pool.forecast_average_hint', {
+            days: forecast.backtestDays,
+            avg: percent(forecast.backtestMae.average ?? 0),
+            nn: Number.isFinite(neuralMae) ? percent(neuralMae) : '-',
+          })
+        : t('quota_pool.forecast_neural_hint', {
+            source: t(
+              forecast.method === 'neural-tokens'
+                ? 'quota_pool.forecast_source_tokens'
+                : 'quota_pool.forecast_source_spend'
+            ),
+            days: forecast.backtestDays,
+            nn: percent(forecast.backtestMae[forecast.method ?? 'neural-spend'] ?? 0),
+            avg: percent(forecast.backtestMae.average ?? 0),
+          });
+
   const stats = hasData
     ? [
         { key: 'pool', label: t('quota_pool.pool_empty'), value: poolEmptyValue },
@@ -125,6 +157,16 @@ export function QuotaPoolPanel(props: QuotaPoolPanelProps) {
           key: 'burn',
           label: t('quota_pool.burn', { hours: burnWindowHours }),
           value: summary.burnPerHour === null ? '-' : rate(summary.burnPerHour),
+        },
+        {
+          key: 'forecast',
+          label: t('quota_pool.forecast'),
+          value:
+            summary.forecast.source === null || summary.forecast.next24hPerHour === null ? (
+              '-'
+            ) : (
+              <span title={forecastHint}>{forecastLabel}</span>
+            ),
         },
       ]
     : [];
