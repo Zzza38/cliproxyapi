@@ -16,6 +16,7 @@ import {
   type PoolSummary,
 } from './poolModel';
 import { predictNewSessionOrder, type RoutingEntry } from './routingOrder';
+import type { ServerForecast } from './serverForecast';
 
 export type PooledQuotaState = ClaudeQuotaState | CodexQuotaState;
 
@@ -46,6 +47,7 @@ export interface BuildPoolOptions {
   span: { startMs: number; endMs: number };
   burnWindowHours: number;
   futureUsage: FutureUsage;
+  serverForecast?: ServerForecast | null;
 }
 
 const planTypeOf = (provider: PooledProvider, entry: PoolSourceEntry): string | null => {

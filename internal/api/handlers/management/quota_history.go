@@ -33,6 +33,16 @@ func (h *Handler) GetQuotaHistory(c *gin.Context) {
 	c.JSON(http.StatusOK, store.History(h.liveQuotaHistoryCredentials(), time.Now()))
 }
 
+// GetQuotaForecast returns the server-trained hourly spend forecast per pooled provider.
+func (h *Handler) GetQuotaForecast(c *gin.Context) {
+	trainer := h.authManager.QuotaForecaster()
+	if trainer == nil {
+		c.JSON(http.StatusOK, gin.H{"enabled": false})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"enabled": true, "providers": trainer.Forecasts()})
+}
+
 func (h *Handler) ImportQuotaHistory(c *gin.Context) {
 	store := h.authManager.SubscriptionHistoryStore()
 	if store == nil {

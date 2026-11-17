@@ -9,6 +9,7 @@ import (
 	"time"
 
 	internalconfig "github.com/router-for-me/CLIProxyAPI/v8/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v8/internal/quotaforecast"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/quotahistory"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v8/sdk/cliproxy/executor"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
@@ -174,6 +175,7 @@ type resultPolicyHolder struct {
 // Manager orchestrates auth lifecycle, selection, execution, and persistence.
 type Manager struct {
 	historyStore              *quotahistory.Store
+	quotaForecaster           *quotaforecast.Trainer
 	subscriptionRefresh       map[string]*subscriptionRefreshState
 	subscriptionNow           func() time.Time
 	store                     Store
