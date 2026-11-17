@@ -615,6 +615,38 @@ func TestForwardResponsesStreamExposesTransportErrorAfterOutputForCodex(t *testi
 	}
 }
 
+func TestForwardResponsesStreamUsesResponseFailedForCodexAppServerHost(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	h := NewOpenAIResponsesAPIHandler(handlers.NewBaseAPIHandlers(&sdkconfig.SDKConfig{}, nil))
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	// Codex app-server hosts rename the originator and user-agent prefix but keep the Codex core headers.
+	c.Request.Header.Set("Originator", "T3 Code")
+	c.Request.Header.Set("User-Agent", "T3 Code/0.169.0 (Ubuntu 26.4.0; x86_64) unknown (T3 Code; 0.1.8)")
+	c.Request.Header.Set("X-Codex-Window-Id", "01a1eaa3-08a4-7963-a896-30fe1f91f77e:0")
+
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		t.Fatal("expected gin writer to implement http.Flusher")
+	}
+
+	framer := &responsesSSEFramer{}
+	framer.WriteChunk(c.Writer, []byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n"))
+	data := make(chan []byte)
+	errs := make(chan *interfaces.ErrorMessage, 1)
+	errs <- &interfaces.ErrorMessage{StatusCode: http.StatusBadGateway, Error: errors.New("unexpected EOF")}
+	close(errs)
+
+	h.forwardResponsesStream(c, flusher, func(error) {}, data, errs, framer)
+	body := recorder.Body.String()
+	if !strings.Contains(body, "event: response.failed") || strings.Contains(body, "event: error") {
+		t.Fatalf("Codex app-server host did not receive response.failed: %q", body)
+	}
+}
+
 func TestForwardResponsesStreamSanitizesDiagnosticErrorDetails(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
