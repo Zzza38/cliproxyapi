@@ -378,7 +378,12 @@ export function QuotaPage() {
 
   /* ---------- Subscription pools ---------- */
 
-  const { local: localHistory, merged: history, tokens: tokenUsage } = useQuotaHistory();
+  const {
+    local: localHistory,
+    merged: history,
+    tokens: tokenUsage,
+    forecast: serverForecast,
+  } = useQuotaHistory();
   const now = useNow();
   const span = useMemo(() => poolSpan(rangeOffset, now), [rangeOffset, now]);
   const days = useMemo(() => poolDays(span), [span]);
@@ -434,11 +439,13 @@ export function QuotaPage() {
           span,
           burnWindowHours,
           futureUsage,
+          serverForecast: serverForecast?.[provider] ?? null,
         });
       }),
     [
       burnWindowHours,
       futureUsage,
+      serverForecast,
       history,
       now,
       pooledEntries,

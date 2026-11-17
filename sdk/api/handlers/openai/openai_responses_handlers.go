@@ -1269,6 +1269,12 @@ func isCodexResponsesClientRequest(c *gin.Context) bool {
 	if multiagentv2.IsCodexClientUserAgent(c.GetHeader("User-Agent")) {
 		return true
 	}
+	// Codex-based app-server hosts (e.g. T3 Code) replace the originator and the user-agent prefix
+	// with their own name, but the Codex core still sends its per-turn headers. Those clients only
+	// surface mid-stream failures delivered as response.failed; a generic error event is ignored.
+	if strings.TrimSpace(c.GetHeader("X-Codex-Window-Id")) != "" || strings.TrimSpace(c.GetHeader("X-Codex-Turn-Metadata")) != "" {
+		return true
+	}
 
 	switch originator := strings.ToLower(strings.TrimSpace(c.GetHeader("Originator"))); originator {
 	case "codex desktop", "codex-tui", "codex_cli_rs":

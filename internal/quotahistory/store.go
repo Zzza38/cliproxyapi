@@ -333,3 +333,17 @@ func (s *Store) Tokens(from, to int64) map[string]*TokenTotals {
 	}
 	return result
 }
+
+// TokenPoints returns a copy of every retained token record, oldest first.
+func (s *Store) TokenPoints(now time.Time) []TokenPoint {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []TokenPoint{}
+	for _, e := range s.events {
+		if e.Tokens != nil && valid(e, now) {
+			out = append(out, *e.Tokens)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].At < out[j].At })
+	return out
+}

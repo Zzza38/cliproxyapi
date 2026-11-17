@@ -1,16 +1,18 @@
 /**
  * Quota history for the pool charts: this browser's log merged in memory with
- * the server's weekly history for the current connection, plus server token totals.
+ * the server's weekly history for the current connection, plus server token totals
+ * and the server-trained demand forecast.
  */
 
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { apiClient } from '@/services/api/client';
-import { quotaHistoryApi, tokenUsageApi } from '@/services/api/quotaHistory';
+import { quotaForecastApi, quotaHistoryApi, tokenUsageApi } from '@/services/api/quotaHistory';
 import { useAuthStore } from '@/stores';
 import { getLocalQuotaHistory, useLocalQuotaHistory } from './historyRecorder';
 import { QuotaHistorySync } from './historySync';
 import type { LocalQuotaHistory } from './localHistory';
 import { mergeHistories } from './serverHistory';
+import type { ServerForecasts } from './serverForecast';
 import type { TokenUsage } from './tokenUsage';
 
 const isVisible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden';
@@ -25,6 +27,7 @@ export const quotaHistorySync = new QuotaHistorySync({
   importHistory: (payload, signal) =>
     quotaHistoryApi.importLocal(payload, apiClient.captureConnection(), signal),
   fetchTokens: (signal) => tokenUsageApi.get(apiClient.captureConnection(), signal),
+  fetchForecast: (signal) => quotaForecastApi.get(apiClient.captureConnection(), signal),
   getLocalHistory: getLocalQuotaHistory,
   now: () => Date.now(),
   setTimer: (callback, delayMs) => setTimeout(callback, delayMs),
@@ -57,6 +60,8 @@ export interface QuotaHistoryView {
   serverEnabled: boolean | null;
   /** Server token totals (last 24h) for this connection; null when unavailable. */
   tokens: TokenUsage | null;
+  /** Server-trained demand forecast per provider; null when unavailable. */
+  forecast: ServerForecasts | null;
 }
 
 export function useQuotaHistory(): QuotaHistoryView {
@@ -71,5 +76,11 @@ export function useQuotaHistory(): QuotaHistoryView {
     return quotaHistorySync.acquire();
   }, []);
   const merged = useMemo(() => mergeHistories(local, server.history), [local, server.history]);
-  return { local, merged, serverEnabled: server.enabled, tokens: server.tokens };
+  return {
+    local,
+    merged,
+    serverEnabled: server.enabled,
+    tokens: server.tokens,
+    forecast: server.forecast,
+  };
 }

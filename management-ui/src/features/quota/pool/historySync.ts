@@ -1,6 +1,6 @@
 /**
- * Keeps the server's weekly quota history and 24h token totals in memory for the
- * current connection.
+ * Keeps the server's weekly quota history, 24h token totals and demand forecast
+ * in memory for the current connection.
  *
  * - While at least one consumer is mounted and the page is visible, both are
  *   fetched about once a minute, each on its own schedule.
@@ -19,6 +19,7 @@
 
 import type { LocalQuotaHistory } from './localHistory';
 import { buildImportPayload, parseImportResponse, parseServerHistory } from './serverHistory';
+import { parseServerForecast, type ServerForecasts } from './serverForecast';
 import { parseTokenUsage, type TokenUsage } from './tokenUsage';
 
 export const POLL_INTERVAL_MS = 60_000;
@@ -34,6 +35,8 @@ export interface HistorySyncDeps {
   importHistory(payload: LocalQuotaHistory, signal: AbortSignal): Promise<unknown>;
   /** Token totals; omit to skip them. */
   fetchTokens?(signal: AbortSignal): Promise<unknown>;
+  /** Server-trained demand forecast; omit to skip it. */
+  fetchForecast?(signal: AbortSignal): Promise<unknown>;
   /** This browser's local log for the current connection. */
   getLocalHistory(): LocalQuotaHistory;
   now(): number;
@@ -48,6 +51,8 @@ export interface ServerHistorySnapshot {
   history: LocalQuotaHistory | null;
   /** Token totals when the server store answered as enabled; null otherwise. */
   tokens: TokenUsage | null;
+  /** Server demand forecast per provider; null when unavailable. */
+  forecast: ServerForecasts | null;
 }
 
 const statusOf = (error: unknown): number | undefined =>
@@ -82,6 +87,7 @@ const emptySnapshot = (revision: number): ServerHistorySnapshot => ({
   enabled: null,
   history: null,
   tokens: null,
+  forecast: null,
 });
 
 export class QuotaHistorySync {
@@ -93,6 +99,7 @@ export class QuotaHistorySync {
   private importAttempts = 0;
   private history: Feed = freshFeed();
   private tokens: Feed = freshFeed();
+  private forecast: Feed = freshFeed();
   private controller: AbortController | null = null;
   private timer: unknown = null;
   private consumers = 0;
@@ -100,6 +107,7 @@ export class QuotaHistorySync {
 
   constructor(private readonly deps: HistorySyncDeps) {
     if (!deps.fetchTokens) this.tokens.stopped = true;
+    if (!deps.fetchForecast) this.forecast.stopped = true;
   }
 
   /** Start polling for a mounted consumer; the returned function releases it. */
@@ -141,6 +149,8 @@ export class QuotaHistorySync {
     this.history = freshFeed();
     this.tokens = freshFeed();
     if (!this.deps.fetchTokens) this.tokens.stopped = true;
+    this.forecast = freshFeed();
+    if (!this.deps.fetchForecast) this.forecast.stopped = true;
     this.snapshot = emptySnapshot(revision);
     this.notify();
     if (this.consumers > 0) this.kick();
@@ -192,7 +202,7 @@ export class QuotaHistorySync {
   }
 
   private allStopped() {
-    return this.history.stopped && this.tokens.stopped;
+    return this.history.stopped && this.tokens.stopped && this.forecast.stopped;
   }
 
   private schedule(delayMs: number) {
@@ -220,7 +230,7 @@ export class QuotaHistorySync {
   private nextDelay() {
     // The credential list arrived during a fetch: import right away.
     if (this.importPending()) return 0;
-    const dues = [this.history, this.tokens]
+    const dues = [this.history, this.tokens, this.forecast]
       .filter((feed) => !feed.stopped)
       .map((feed) => feed.dueMs);
     return Math.min(...dues) - this.deps.now();
@@ -261,6 +271,10 @@ export class QuotaHistorySync {
       }
       if (!this.tokens.stopped && this.tokens.dueMs <= this.deps.now()) {
         await this.syncTokens(controller.signal, current);
+        if (!current()) return;
+      }
+      if (!this.forecast.stopped && this.forecast.dueMs <= this.deps.now()) {
+        await this.syncForecast(controller.signal, current);
       }
     } finally {
       if (this.controller === controller) {
@@ -359,5 +373,35 @@ export class QuotaHistorySync {
   private stopTokens() {
     this.tokens.stopped = true;
     if (this.snapshot.tokens !== null) this.update({ tokens: null });
+  }
+
+  private async syncForecast(signal: AbortSignal, current: () => boolean) {
+    const fetchForecast = this.deps.fetchForecast;
+    if (!fetchForecast) return;
+    let response: unknown;
+    try {
+      response = await fetchForecast(signal);
+    } catch (error) {
+      if (!current()) return;
+      if (isMissingEndpoint(error)) this.stopForecast();
+      else this.settle(this.forecast, true);
+      return;
+    }
+    if (!current()) return;
+    const parsed = parseServerForecast(response);
+    if (!parsed) {
+      this.stopForecast();
+    } else if (!parsed.enabled) {
+      this.settle(this.forecast, true);
+      if (this.snapshot.forecast !== null) this.update({ forecast: null });
+    } else {
+      this.settle(this.forecast, false);
+      this.update({ forecast: parsed.providers });
+    }
+  }
+
+  private stopForecast() {
+    this.forecast.stopped = true;
+    if (this.snapshot.forecast !== null) this.update({ forecast: null });
   }
 }

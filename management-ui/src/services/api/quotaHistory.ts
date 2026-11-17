@@ -27,3 +27,11 @@ export const tokenUsageApi = {
   get: (client: HistoryClient = apiClient, signal?: AbortSignal) =>
     client.get<unknown>(TOKEN_USAGE_PATH, { signal }),
 };
+
+/** Server-trained hourly pool demand forecast per provider. */
+export const QUOTA_FORECAST_PATH = '/credentials/quota/forecast';
+
+export const quotaForecastApi = {
+  get: (client: HistoryClient = apiClient, signal?: AbortSignal) =>
+    client.get<unknown>(QUOTA_FORECAST_PATH, { signal }),
+};
