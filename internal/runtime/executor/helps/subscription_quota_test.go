@@ -129,3 +129,27 @@ func TestSubscriptionRetryAfterParsing(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeReadOnlyQuotaRetainsPoolWindows(t *testing.T) {
+	now := time.Unix(1800000000, 0)
+	q := ParseSubscriptionQuota("claude", []byte(`{"five_hour":null,"seven_day":{"utilization":75,"resets_at":"2027-01-21T14:40:00Z"},"extra_usage":{"utilization":100},"cedar_ember":{"available_count":3}}`), &coreauth.Auth{}, now)
+	if got := q.UsageSignals["Anthropic-Ratelimit-Unified-7d-Utilization"]; got != "0.75" {
+		t.Fatalf("weekly usage = %q", got)
+	}
+	if got := q.UsageSignals["Anthropic-Ratelimit-Unified-7d-Reset"]; got != "1800542400" {
+		t.Fatalf("weekly reset = %q", got)
+	}
+	if len(q.UsageSignals) != 2 {
+		t.Fatalf("unknown session, spend or credits leaked into pool: %v", q.UsageSignals)
+	}
+	for _, payload := range []string{
+		`{"seven_day":{"utilization":"75","resets_at":"2027-01-21T14:40:00Z"}}`,
+		`{"seven_day":{"utilization":-1,"resets_at":"2027-01-21T14:40:00Z"}}`,
+		`{"seven_day":{"utilization":75,"resets_at":"2020-01-01T00:00:00Z"}}`,
+	} {
+		bad := ParseSubscriptionQuota("claude", []byte(payload), &coreauth.Auth{}, now)
+		if len(bad.UsageSignals) != 0 {
+			t.Fatalf("invalid quota accepted: %v", bad.UsageSignals)
+		}
+	}
+}

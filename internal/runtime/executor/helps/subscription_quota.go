@@ -92,6 +92,7 @@ func FetchSubscriptionQuota(ctx context.Context, auth *coreauth.Auth, provider, 
 func ParseSubscriptionQuota(provider string, body []byte, auth *coreauth.Auth, now time.Time) *coreauth.SubscriptionQuota {
 	q := &coreauth.SubscriptionQuota{ObservedAt: now, CapacityMultiplier: SubscriptionCapacity(provider, ojson.GetBytesNoCopy(body, "plan_type").String(), auth)}
 	if provider == "claude" {
+		q.UsageSignals = claudeUsageSignals(body, now)
 		weekly := ojson.GetBytesNoCopy(body, "seven_day")
 		setSubscriptionWindow(q, weekly.Get("utilization"), parseSubscriptionTime(weekly.Get("resets_at")), true, now)
 		short := ojson.GetBytesNoCopy(body, "five_hour")
@@ -208,4 +209,27 @@ func subscriptionRetryAfter(raw string, now time.Time) time.Duration {
 		return at.Sub(now)
 	}
 	return 0
+}
+
+// Keep only the numeric windows needed by pooled usage; credits and spend stay private to their readers.
+func claudeUsageSignals(body []byte, now time.Time) map[string]string {
+	signals := make(map[string]string)
+	for _, window := range []struct{ name, header string }{
+		{"five_hour", "5h"}, {"seven_day", "7d"}, {"seven_day_sonnet", "7d-sonnet"}, {"seven_day_opus", "7d-opus"},
+	} {
+		value := ojson.GetBytesNoCopy(body, window.name)
+		used := value.Get("utilization")
+		reset := parseSubscriptionTime(value.Get("resets_at"))
+		if used.Type != ojson.Number || !reset.After(now) {
+			continue
+		}
+		percent := used.Float()
+		if math.IsNaN(percent) || math.IsInf(percent, 0) || percent < 0 {
+			continue
+		}
+		prefix := "Anthropic-Ratelimit-Unified-" + window.header + "-"
+		signals[prefix+"Utilization"] = strconv.FormatFloat(math.Min(percent, 100)/100, 'f', -1, 64)
+		signals[prefix+"Reset"] = strconv.FormatInt(reset.Unix(), 10)
+	}
+	return signals
 }

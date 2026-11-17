@@ -55,6 +55,7 @@ func (s *Server) setupRoutes() {
 	s.engine.HEAD("/healthz", healthzHandler)
 
 	s.engine.GET("/management.html", s.serveManagementControlPanel)
+	s.engine.GET("/prompts", servePromptsPage)
 	openaiHandlers := openai.NewOpenAIAPIHandler(s.handlers)
 	geminiHandlers := gemini.NewGeminiAPIHandler(s.handlers)
 	claudeCodeHandlers := claude.NewClaudeCodeAPIHandler(s.handlers)
@@ -92,6 +93,11 @@ func (s *Server) setupRoutes() {
 		v1.GET("/live/:call_id", s.codexLiveHandler.HandleSideband)
 	}
 
+	s.engine.GET("/v1/tunnel", s.handleWebsocketTunnel)
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodHead, http.MethodTrace, http.MethodConnect} {
+		s.engine.Handle(method, "/v1/tunnel", s.handleWebsocketTunnel)
+	}
+
 	realtimeAuth := realtimeAuthMiddleware(s.accessManager, s.codexLiveHandler)
 	standardAuth := realtimeStandardAuthMiddleware(s.accessManager)
 	s.engine.GET("/v1/realtime", realtimeAuth, s.codexLiveHandler.HandleRealtimeWebsocket)
@@ -116,6 +122,10 @@ func (s *Server) setupRoutes() {
 		openaiV1.GET("/videos/:video_id/content", openaiHandlers.VideosContent)
 		openaiV1.GET("/videos/:video_id", openaiHandlers.VideosRetrieve)
 	}
+
+	// Account reads bypass the model provider URL in Codex app-server.
+	s.engine.GET("/backend-api/wham/usage", AuthMiddleware(s.accessManager), openaiResponsesHandlers.CodexUsage)
+	s.engine.GET("/api/oauth/usage", AuthMiddleware(s.accessManager), claudeCodeHandlers.ClaudeUsage)
 
 	// Codex CLI direct route aliases (chatgpt_base_url compatible)
 	codexDirect := s.engine.Group("/backend-api/codex")
@@ -606,6 +616,15 @@ func (s *Server) AttachWebsocketRoute(path string, handler http.Handler) {
 	}
 
 	s.engine.GET(trimmed, conditionalAuth, finalHandler)
+}
+
+func (s *Server) handleWebsocketTunnel(c *gin.Context) {
+	if s == nil || s.tunnelHub == nil {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "tunnel hub unavailable"})
+		return
+	}
+	s.tunnelHub.ServeHTTP(c.Writer, c.Request)
+	c.Abort()
 }
 
 // isAnthropicModelsRequest reports whether a /v1/models request should be served in
