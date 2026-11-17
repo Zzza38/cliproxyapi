@@ -190,13 +190,13 @@ func writeFeatures(rates []float64, i int, bucketStart time.Time, weekly bool, o
 	out[7] = math.Log1p(mean(i-6, 6))
 	out[8] = math.Log1p(mean(i-24, 24))
 	out[9] = math.Log1p(rates[i-24])
+	// Without a week of history, yesterday stands in for last week.
+	weekLag, weekFlag := rates[i-24], 0.0
 	if hasWeek {
-		out[10] = math.Log1p(rates[i-weekHours])
-		out[11] = 1
-	} else {
-		out[10] = math.Log1p(rates[i-24])
-		out[11] = 0
+		weekLag, weekFlag = rates[i-weekHours], 1
 	}
+	out[10] = math.Log1p(weekLag)
+	out[11] = weekFlag
 }
 
 // Model is a trained network plus what is needed to use and judge it.
